@@ -10,7 +10,10 @@
 //   - https://sanghyunpark.pages.dev/apps/mission-studio/index.html 301s to
 //     the trailing-slash directory URL and serves identical bytes (verified
 //     2026-10-13); fetch follows the redirect, so the entry compare is exact;
-//   - a real 404 on a captured non-entry file is reported live-missing;
+//   - SOFT-404 CAVEAT: this Astro-hosted origin answers unknown paths with a
+//     200 text/html site fallback (13,064 B homepage) instead of a 404 — a
+//     non-HTML captured file coming back as text/html means the file is GONE
+//     upstream (reported live-missing, not silently "changed");
 //   - _mirror-report.json is a local capture record — never probed;
 //   - rotating per-response noise is normalized before the entry compare.
 import fs from "node:fs";
@@ -29,7 +32,7 @@ const MAX_PROBES = 1200;
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 async function getBuf(url) {
   const r = await fetch(url, { headers: UA });
-  return { status: r.status, buf: r.ok ? Buffer.from(await r.arrayBuffer()) : null };
+  return { status: r.status, ct: r.headers.get("content-type") || "", buf: r.ok ? Buffer.from(await r.arrayBuffer()) : null };
 }
 // disk rel -> served path ("" = the origin root)
 const servedOf = (rel) => (rel.startsWith(DISK_PREFIX) ? rel.slice(DISK_PREFIX.length) : rel);
@@ -60,7 +63,7 @@ const rels = Object.keys(manifest.files)
   .slice(0, MAX_PROBES);
 for (const rel of rels) {
   const r = await getBuf(urlFor(rel));
-  if (r.status === 200 && !live[rel]) live[rel] = { buf: r.buf };
+  if (r.status === 200 && !live[rel]) live[rel] = { buf: r.buf, ct: r.ct };
 }
 
 const rows = [];
@@ -72,6 +75,11 @@ for (const [n, m] of Object.entries(manifest.files).sort()) {
     continue;
   }
   if (m.dynamic) continue; // live-data payload: presence is the only stable signal
+  // soft-404: a non-HTML capture answered by the HTML site fallback is gone upstream
+  if (!n.endsWith(".html") && /text\/html/i.test(l.ct || "")) {
+    rows.push({ file: n, state: "live-missing", note: "soft-404: origin served its HTML site fallback" });
+    continue;
+  }
   if (n === ENTRY || n.endsWith(".html")) {
     const cap = path.join(proj, n);
     if (!fs.existsSync(cap)) continue;

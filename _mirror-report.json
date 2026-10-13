@@ -1,0 +1,86 @@
+{
+  "start": "https://sanghyunpark.pages.dev/apps/mission-studio/",
+  "origin": "https://sanghyunpark.pages.dev",
+  "servedPrefix": "apps/mission-studio/",
+  "captureRoot": "apps/mission-studio/",
+  "entryUrl": "https://sanghyunpark.pages.dev/apps/mission-studio/ (index.html 301s to the trailing-slash directory URL; identical bytes)",
+  "gated": false,
+  "sessionRenewal": "none",
+  "requests": 65,
+  "fetched": 33,
+  "bytes": 55868895,
+  "paths": [
+    "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js",
+    "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js",
+    "apps/mission-studio/assets/apollo_lm.0c2c313482.glb",
+    "apps/mission-studio/assets/earth_aux.3bf717776b.jpg",
+    "apps/mission-studio/assets/earth_clouds.85c42a93e9.jpg",
+    "apps/mission-studio/assets/earth_clouds_8k.87f5cced5f.jpg",
+    "apps/mission-studio/assets/earth_day.f2cc89e242.jpg",
+    "apps/mission-studio/assets/earth_day_8k.65cfe8381b.jpg",
+    "apps/mission-studio/assets/earth_night.c6529a7b12.jpg",
+    "apps/mission-studio/assets/earth_night_8k.d858fe1094.jpg",
+    "apps/mission-studio/assets/iss.93dcb2db5f.glb",
+    "apps/mission-studio/assets/jupiter.efa4857ae7.jpg",
+    "apps/mission-studio/assets/mars.55a8499eae.jpg",
+    "apps/mission-studio/assets/mars_4k.198fa949d9.jpg",
+    "apps/mission-studio/assets/mars_8k.2b287e5c8f.jpg",
+    "apps/mission-studio/assets/mars_aux.4ffcd109cd.jpg",
+    "apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js",
+    "apps/mission-studio/assets/moon.c0b04ebfd5.jpg",
+    "apps/mission-studio/assets/moon_4k.70d18ad28c.jpg",
+    "apps/mission-studio/assets/moon_8k.e62eb34b75.jpg",
+    "apps/mission-studio/assets/moon_aux.b162388d4f.jpg",
+    "apps/mission-studio/assets/orbiter-atlantis-2011.8dd5d974b1.webp",
+    "apps/mission-studio/assets/orbiter-columbia-1981.cbdd7a19fb.webp",
+    "apps/mission-studio/assets/orbiter-discovery-1990.5e9bd01f14.webp",
+    "apps/mission-studio/assets/orbiter.a04192b5d6.glb",
+    "apps/mission-studio/assets/perseverance.3fe6618a01.glb",
+    "apps/mission-studio/assets/saturn.6c309cef02.jpg",
+    "apps/mission-studio/assets/saturnv.7a0913aa0b.glb",
+    "apps/mission-studio/assets/shuttle_stack.9526e4715a.glb",
+    "apps/mission-studio/assets/stars.b686ef8f1d.json",
+    "apps/mission-studio/assets/three.module.min.3e690ac7d1.js",
+    "apps/mission-studio/assets/venus.d02db3e21e.jpg",
+    "apps/mission-studio/index.html"
+  ],
+  "unresolved": [],
+  "unreachable": [
+    {
+      "status": "200 (soft-404)",
+      "path": "index.htm, favicon.ico, manifest.json, robots.txt, sw.js, assets (dir), assets/ (dir) and *.js.map probes",
+      "probes": 13,
+      "note": "the Astro-hosted origin has no hard 404: every unknown path under /apps/mission-studio/ answers 200 with the site's 13,064 B text/html homepage fallback. So these are NOT files — there are no sourcemaps on the deploy and no extra sibling documents. tools/update.mjs flags a non-HTML captured file answered as text/html as live-missing (soft-404 detection)."
+    }
+  ],
+  "external": [
+    "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap (+ fonts.gstatic.com woff2 x5 at runtime) — external CDN stylesheet/fonts; the app falls back to system fonts offline; not backfilled (fleet CDN rule, socker precedent 2026-10-10)",
+    "https://fonts.googleapis.com + https://fonts.gstatic.com preconnect hints — connection warm-ups, not content; not captured",
+    "data: favicon (inline SVG) and data: webp inline icons in the app — inline payloads inside the entry document / module, not files",
+    "blob: worker URLs — the engine script text (the inline classic <script id=\"engine-src\">) is re-wrapped with WORKER_MAIN into a Blob and run as a Web Worker by the module (6 blob URLs observed at runtime); no file is requested"
+  ],
+  "networkCrossCheck": {
+    "live": {
+      "entries": 39,
+      "onHost": 23,
+      "onHostNotInCapture": 0,
+      "failures": 0,
+      "note": "opencli browser network log while the mirror served the app on loopback: initial load = 21 entries (12 on-host: entry document, assets/three.module.min.3e690ac7d1.js, stars.json and 9 planet JPGs; 6 external Google Fonts; 2 data: icons; 1 worker blob) and the gameplay run = 18 entries (11 on-host: the three dynamically imported three.js addons GLTFLoader/meshopt_decoder/BufferGeometryUtils, saturnv + apollo_lm GLBs, earth_*_8k + moon_4k/moon_8k/moon_aux textures; 6 worker blobs; 1 data: webp). Every on-host request HTTP 200; zero requests resolve outside the captured manifest."
+    },
+    "local": {
+      "note": "mirror served on loopback (tools/serve.mjs, port 8095), full session (mission setup -> Apollo 11 -> Fly this mission -> pad countdown -> ascent -> timeline scrub through translunar coast -> powered descent -> touchdown): the serve log contains zero 404 lines and the browser console zero messages, so the captured closure served the app completely."
+    }
+  },
+  "notes": [
+    "capture root mirrors the served sub-path exactly (apps/mission-studio/ at the repo root), so a plain static server reproduces the requested URLs (/apps/mission-studio/ -> apps/mission-studio/index.html) — dead-world precedent for sub-path deploys",
+    "the app is ONE self-contained HTML document (1,151,899 B) plus a hashed asset tree: inline <style> #1 (31,292 B, the single dark theme), classic <script id=\"engine-src\"> #1 (400,890 B, the simulation engine — also the Worker source the module runs via a Blob), ES module <script type=\"module\"> #2 (700,888 B, the three.js renderer & UI); capture bytes are the raw content between the tags",
+    "closure was iterated to fixpoint over the captured HTML/JS/CSS: every script/link reference, import/dynamic import/new URL/fetch literal, ASSET() call and ASSET_MAP target (31 logical names -> 31 hashed files) plus literal path scan (67 resolutions, 0 missing) and a direct sibling-path probe round on the origin; the runtime network log while the app actually RAN cross-checked it (23 on-host requests, all 200, none outside the capture). Genuine upstream 404s: none (the origin has no hard 404s — see unreachable)",
+    "ASSET_MAP (31 entries) is the deploy's runtime asset graph: apollo_lm/iss/orbiter/perseverance/saturnv/shuttle_stack GLB models, 18 planet JPG textures (Earth day/night/clouds/aux 2K+8K, Moon + 4K/8K/aux, Mars + 4K/8K/aux, Jupiter, Saturn, Venus), 3 orbiter-patch WebPs, stars.json and the three three.js addons; all captured byte-exact",
+    "the one script ref seen in recon (assets/three.module.min.3e690ac7d1.js) is the vendored three.js r160 ES-module build (MIT, '160' revision); the module imports it directly and GLTFLoader/BufferGeometryUtils import it or each other from the same assets/ directory",
+    "'unity' in the page is a false positive: the string occurs only inside 'Opportunity' (Meridiani Planum) and other prose — no Unity runtime, no wasm engine beyond the meshopt decoder's embedded base64",
+    "derived layers: readable/ = 7 pretties (3 inline blocks + 4 vendored three.js modules), all re-render byte-exact under the recorded single-pass pinned prettier 3.9.6 method; src/ = 123 statement-aligned slices (42 engine + 81 module), 123/123 standalone-parse + byte-exact round-trip; split-spec.json = 130 sections (123 ranged + 7 wholeFile + 0 skipped) + 32 notRendered records (28 hashed binary/data assets + Google Fonts stylesheet/preconnects + the inline favicon data URI)",
+    "boot test: served on loopback, the app booted to the Pre-flight mission setup, Apollo 11 was selected and flown (Fly this mission), the pad countdown ran and the mission played; cover = docs/cover.png (Eagle in powered descent over the Moon, 479 m, T+4d 07:34:30), boot evidence = docs/boot-2026-10-13.png (Saturn V on LC-39A at T-00:00:10); the automation window was background-throttled (rAF paused) so later mission epochs were reached through the app's own timeline scrub (__ms.setTime + renderFrame, the same render path); listener PID killed and port 8095 proved closed (netstat)",
+    "section 0.4 fork-over-mirror checked 2026-10-13: a public source repo EXISTS — the project's own page (sanghyunpark.pages.dev/projects/mission-studio/) links https://github.com/sean-lab/mission-studio (public, MIT license, created 2026-10-10, pushed 2026-10-12, ~53 MB; its README links this deploy and its assets/ holds the un-hashed source assets the deploy's build.js hashes). The captured bundle itself carries no repo link and the in-page credits are asset credits only. Per PLAN 0.4 the fleet prefers a fork over a mirror when the source is publicly obtainable (kino-der-toten precedent) — recorded here as an open decision for the coordinator; the mirror is delivered as instructed",
+    "soft-404 caveat for the drift probe: unknown paths answer 200 + text/html homepage fallback (13,064 B) instead of 404; tools/update.mjs detects that (non-HTML capture answered as text/html -> live-missing)"
+  ]
+}

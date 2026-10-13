@@ -62,9 +62,10 @@ preserved at the repo root.
   `apps/mission-studio/index.html` through any static server)
 - `.upstream/manifest.json` — sha256 for every captured file (33 files)
 - `readable/` — prettified derived layer (pinned prettier 3.9.6) for the
-  three inline blocks and the four captured vendor modules
-- `src/` + `split-spec.json` — statement-aligned slices of the two inline
-  scripts with the recorded derivation spec
+  three inline blocks (7 pretties, 70,878 lines) and
+  `readable/index-inline-map.json` (inline block byte ranges + sha256)
+- `src/` + `split-spec.json` — 123 statement-aligned slices of the two inline
+  scripts with the recorded derivation spec (130 sections)
 - `tools/derive.mjs` — rebuild `readable/` + `src/` + `split-spec.json`
 - `tools/update.mjs` — read-only drift probe against the live deploy
 - `tools/verify.mjs` — re-hash the capture against the manifest
@@ -118,10 +119,88 @@ node tools/update.mjs     # read-only drift probe: what changed upstream
 The probe never rewrites the capture — a mirror is a point-in-time snapshot.
 It probes `https://sanghyunpark.pages.dev/apps/mission-studio/` (the
 `index.html` URL 301s to the trailing-slash directory URL; the two serve
-identical bytes). Refreshing means re-fetching the closure into a clean tree
-(entry + every `ASSET_MAP` target + the imported three.js module/addons),
-re-cutting `.upstream/manifest.json`, and re-deriving `readable/` + `src/`
-from the new blocks.
+identical bytes). **Soft-404 caveat:** the Astro-hosted origin answers unknown
+paths with a 200 `text/html` site fallback (the 13,064 B homepage) instead of
+a 404 — the probe therefore reports a non-HTML captured file that comes back
+as HTML as `live-missing` (it is gone upstream), never as a silent "changed".
+Refreshing means re-fetching the closure into a clean tree (entry + every
+`ASSET_MAP` target + the imported three.js module/addons), re-cutting
+`.upstream/manifest.json`, and re-deriving `readable/` + `src/` from the new
+blocks.
+
+### 2026-10-13 readable/src derivation
+
+Both derived layers were cut from the recorded capture (capture bytes
+untouched — `node tools/verify.mjs` re-hashes all 33 files; `node tools/audit.js`
+gates the derived trees):
+
+- `readable/` — pinned prettier 3.9.6 (module API, default options, single
+  pass verified idempotent at derive time — never the CLI, it respects
+  `.gitignore` and can silently echo its input) rendered the three inline
+  content blocks and the four captured vendor modules to 7 pretties (70,878
+  lines): `index-inline-1.pretty.css` (the app stylesheet, 1,870 lines),
+  `index-inline-1.pretty.js` (the classic engine, 14,941 lines),
+  `index-inline-2.pretty.js` (the ES module, 23,562 lines) and
+  `assets__three.module.min.3e690ac7d1.pretty.js` (28,854 lines) +
+  `assets__GLTFLoader…` (4,164) + `assets__BufferGeometryUtils…` (1,230) +
+  `assets__meshopt_decoder.module…` (257). Every pretty is provably not a
+  byte copy of its capture source and re-renders byte-exact under the
+  recorded single-pass method (7/7); the inline blocks' byte ranges + sha256
+  are recorded in `readable/index-inline-map.json`.
+- `src/` — 123 statement-aligned slices across the two inline scripts
+  (42 over the classic engine's 245 top-level statements, 81 over the ES
+  module's 656), recorded in `split-spec.json` (130 sections: 123 ranged +
+  7 wholeFile + 0 skipped): 123/123 parse standalone under
+  `node --input-type=module --check -` and round-trip byte-exact to their
+  readable line ranges, cuts land only on top-level declaration boundaries
+  (~250-350 line windows; oversized single declarations stay whole). The
+  banner heads (`// ---- core.js`, `// ==== 00_util.js` + the module header)
+  are wholeFile sections, indexed and never sliced.
+- Vendor rule — wholeFile sections, never sliced: the four captured three.js
+  modules (three.js r160 core, GLTFLoader, BufferGeometryUtils,
+  meshopt_decoder with its embedded WASM base64), content-guarded. The
+  stylesheet rule keeps `index-inline-1.css` wholeFile. The 28 binary/data
+  payloads (6 GLB models, 18 JPG textures, 3 WebP patches, `stars.json`) are
+  hashed `notRendered` records — carried byte-exact, no pretty pass.
+- Non-standalone parts: none outside the wholeFile heads — every slice of
+  both scripts is a valid standalone ES module body (0 skipped sections).
+- Gates: `node tools/verify.mjs` → `33 files checked, 0 problems`;
+  `node tools/audit.js` → `AUDIT PASS` (123/123 round-trips, 7/7 pretties
+  re-render byte-exact, 7/7 pretty sources tiled contiguously, 123/123 slices
+  + 6/6 readable pretties parse standalone, 3 inline blocks with twins + map,
+  28/28 binary assets recorded hashed, 1/1 import resolves — the module's
+  `./assets/three.module.min.<hash>.js` inside the capture);
+  `node tools/update.mjs` → the 33 captured files identical upstream.
+  Rebuild with `node tools/derive.mjs`.
+- Boot + closure cross-check: mirror root served on loopback
+  (`node tools/serve.mjs`, port 8095), opened at
+  `http://127.0.0.1:8095/apps/mission-studio/`. The app booted (Pre-flight
+  mission setup), Apollo 11 was chosen and flown from the setup panel
+  (`Fly this mission ▶`): pad countdown → ascent → … → powered descent →
+  “The Eagle has landed.” Cover = `docs/cover.png` (actual gameplay: Eagle in
+  powered descent over the Moon, 479 m, T+4d 07:34:30); boot evidence =
+  `docs/boot-2026-10-13.png` (the Saturn V on LC-39A at T−00:00:10 with the
+  full console UI). Because the automation window was background-throttled
+  (rAF paused), the later mission epochs were reached through the app's own
+  timeline scrub (`__ms.setTime` + `renderFrame`) — the same render path the
+  frame loop uses. The live network log across load + play (39 entries: 23
+  on-host, all HTTP 200 — entry, `three.module.min`, the three dynamically
+  imported three.js addons, `saturnv`/`apollo_lm` GLBs, 8K/4K planet
+  textures, `stars.json`, 6 worker blobs; plus the external Google Fonts CSS
+  + 5 woff2 and 2 `data:` icons) shows **zero on-host misses**; the loopback
+  serve log recorded zero 404s and the browser console was empty. Listener
+  killed, port 8095 proved closed (netstat).
+- §0.4 fork-over-mirror checked 2026-10-13 — **a public source repo exists**:
+  the project's own page (`sanghyunpark.pages.dev/projects/mission-studio/`)
+  links **https://github.com/sean-lab/mission-studio** (public, MIT, README
+  links this very deploy; its `assets/` carries the un-hashed source assets
+  the deploy's `build.js` hashes — created 2026-10-10, pushed 2026-10-12).
+  The captured bundle itself contains no repo link and library credits do not
+  count, but the portfolio page does. Per PLAN §0.4 the fleet prefers a fork
+  over a mirror in this situation (kino-der-toten precedent) — this mirror is
+  delivered as instructed and the repo is recorded here so the coordinator
+  can decide: **retire the mirror in favour of a fork of `sean-lab/mission-studio`**
+  (the MIT upstream), or keep it as the byte-exact deploy snapshot.
 
 ## Mirror conventions
 
