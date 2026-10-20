@@ -108,6 +108,7 @@ matters — the deploy serves the app from that directory).
 ```
 node tools/verify.mjs     # re-hash the capture against the manifest
 node tools/audit.js       # derived-layer integrity gate (AUDIT PASS)
+node tools/check-exports.mjs   # the derived layer still exports every public name
 ```
 
 ## Updating from upstream
