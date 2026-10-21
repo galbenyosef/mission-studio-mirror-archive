@@ -159,7 +159,11 @@ gates the derived trees):
   are wholeFile sections, indexed and never sliced.
 - Vendor rule — wholeFile sections, never sliced: the four captured three.js
   modules (three.js r160 core, GLTFLoader, BufferGeometryUtils,
-  meshopt_decoder with its embedded WASM base64), content-guarded. The
+  meshopt_decoder with its embedded WASM base64), content-guarded. Each
+  vendor section is named by its SERVED path (`file`/`capture` =
+  `apps/mission-studio/assets/<name>.js`) and carries the readable twin as
+  its `sourceFile`, so the public-export-name gate can pair the section with
+  the source it came from and read the export table out of that twin. The
   stylesheet rule keeps `index-inline-1.css` wholeFile. The 28 binary/data
   payloads (6 GLB models, 18 JPG textures, 3 WebP patches, `stars.json`) are
   hashed `notRendered` records — carried byte-exact, no pretty pass.
@@ -171,6 +175,10 @@ gates the derived trees):
   + 6/6 readable pretties parse standalone, 3 inline blocks with twins + map,
   28/28 binary assets recorded hashed, 1/1 import resolves — the module's
   `./assets/three.module.min.<hash>.js` inside the capture);
+  `node tools/check-exports.mjs` → `7 export table(s) checked` /
+  `no public export name lost` — the four vendor bundles' export tables are
+  reached (the vendor wholeFile sections name their served file, so the gate
+  finds the readable twin to compare against);
   `node tools/update.mjs` → the 33 captured files identical upstream.
   Rebuild with `node tools/derive.mjs`.
 - Boot + closure cross-check: mirror root served on loopback

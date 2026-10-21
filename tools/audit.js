@@ -439,16 +439,18 @@ if (manifest) {
 
 // ── wholeFile sections carry the recorded shape (content guards) ────────
 const VENDOR_GUARDS = [
-  ["assets__three.module.min.3e690ac7d1-vendor.js", /WebGLRenderer/, /__THREE__/],
-  ["assets__GLTFLoader.8c75e4b72b-vendor.js", /GLTFLoader/, /DRACOLoader/],
-  ["assets__BufferGeometryUtils.1b11c30e00-vendor.js", /toTrianglesDrawMode/, /mergeGeometries/],
-  ["assets__meshopt_decoder.module.01f48524f4-vendor.js", /MeshoptDecoder/, /meshopt/],
+  ["apps/mission-studio/assets/three.module.min.3e690ac7d1.js", /WebGLRenderer/, /__THREE__/],
+  ["apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js", /GLTFLoader/, /DRACOLoader/],
+  ["apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js", /toTrianglesDrawMode/, /mergeGeometries/],
+  ["apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js", /MeshoptDecoder/, /meshopt/],
   ["index-inline-1.css", /--bg: #03050a/, /--amber/],
   ["index-inline-1-head.js", /---- core\.js/, /Frame convention/],
   ["index-inline-2-head.js", /==== 00_util\.js/, /renderer & UI/],
 ];
 for (const [file, reA, reB] of VENDOR_GUARDS) {
-  const sec = sections.find((s) => s.file === file);
+  // A guard may name the section by its served path or by its capture rel —
+  // the section records both.
+  const sec = sections.find((s) => s.file === file) || sections.find((s) => s.capture === file);
   if (!sec) continue; // absence is fine; presence must hold its guard
   if (sec.wholeFile !== true) {
     problem(`wholeFile section ${file} is not wholeFile`);

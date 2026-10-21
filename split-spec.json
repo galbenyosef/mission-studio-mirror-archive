@@ -159,7 +159,8 @@
   ],
   "sections": [
     {
-      "file": "assets__BufferGeometryUtils.1b11c30e00-vendor.js",
+      "file": "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js",
+      "capture": "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js",
       "wholeFile": true,
       "title": "assets__BufferGeometryUtils.1b11c30e00 — three.js BufferGeometryUtils addon (vendor, whole-file, never sliced)",
       "desc": "Lines 1-1230 of readable/assets__BufferGeometryUtils.1b11c30e00.pretty.js: The three.js examples/jsm BufferGeometryUtils addon (mergeGeometries, mergeVertices, interleaveAttributes, toTrianglesDrawMode, …) imported by GLTFLoader and by the app; imports the vendored `./three.module.min.<hash>.js`. Vendor rule — indexed whole-file in readable/, never sliced or rewritten.",
@@ -169,7 +170,8 @@
       "sourceFile": "readable/assets__BufferGeometryUtils.1b11c30e00.pretty.js"
     },
     {
-      "file": "assets__GLTFLoader.8c75e4b72b-vendor.js",
+      "file": "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js",
+      "capture": "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js",
       "wholeFile": true,
       "title": "assets__GLTFLoader.8c75e4b72b — three.js GLTFLoader addon (vendor, whole-file, never sliced)",
       "desc": "Lines 1-4164 of readable/assets__GLTFLoader.8c75e4b72b.pretty.js: The three.js examples/jsm GLTFLoader addon the app dynamically imports (via its `ASSET()` map) to load the GLB models — glTF/GLB parsing with the KHR/Meshopt plugin callbacks and DRACO glue; it imports `./BufferGeometryUtils.<hash>.js` from the same assets/ directory. Vendor rule — indexed whole-file in readable/, never sliced or rewritten.",
@@ -179,7 +181,8 @@
       "sourceFile": "readable/assets__GLTFLoader.8c75e4b72b.pretty.js"
     },
     {
-      "file": "assets__meshopt_decoder.module.01f48524f4-vendor.js",
+      "file": "apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js",
+      "capture": "apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js",
       "wholeFile": true,
       "title": "assets__meshopt_decoder.module.01f48524f4 — meshoptimizer MeshoptDecoder (vendor, whole-file, never sliced)",
       "desc": "Lines 1-257 of readable/assets__meshopt_decoder.module.01f48524f4.pretty.js: The meshoptimizer project's MeshoptDecoder ESM module (Arseny Kapoulkine, MIT) the app dynamically imports for mesh decompression, with the decoder WASM embedded as a base64 payload inside the file. Vendor rule — indexed whole-file in readable/, never sliced or rewritten.",
@@ -189,7 +192,8 @@
       "sourceFile": "readable/assets__meshopt_decoder.module.01f48524f4.pretty.js"
     },
     {
-      "file": "assets__three.module.min.3e690ac7d1-vendor.js",
+      "file": "apps/mission-studio/assets/three.module.min.3e690ac7d1.js",
+      "capture": "apps/mission-studio/assets/three.module.min.3e690ac7d1.js",
       "wholeFile": true,
       "title": "assets__three.module.min.3e690ac7d1 — three.js r160 (vendor, whole-file, never sliced)",
       "desc": "Lines 1-28854 of readable/assets__three.module.min.3e690ac7d1.pretty.js: The vendored three.js r160 ES-module build (its MIT `@license` banner names the Three.js Authors; `REVISION` 160) — renderer core, math, geometries, materials, textures, loaders and the WebGL renderer, minified by the deploy. Vendor rule — indexed whole-file in readable/, never sliced or rewritten; the capture keeps the minified bytes.",

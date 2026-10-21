@@ -348,8 +348,15 @@ async function main() {
     if (!cls) throw new Error(`${rel}: captured JS file is not classified in VENDOR (vendor rule needs a record)`);
     if (!cls.guard(pretty)) throw new Error(`${rel}: vendor guard failed — readable changed shape`);
     wholeTotal++;
+    // The vendor bundle is indexed WHOLE. The section's `file` is the
+    // SERVED file itself (the capture rel — byte-exact, never rewritten) and
+    // `capture` names the same path, so the public-export-name gate can pair
+    // this section with the source it came from and read the export table out
+    // of the readable twin. Naming a file the generator never wrote (a
+    // "-vendor.js" label) left the gate with no derived text to compare.
     sections.push({
-      file: `${tag}-vendor.js`,
+      file: rel,
+      capture: rel,
       wholeFile: true,
       title: cls.title,
       desc: `Lines 1-${lines.length} of ${sourceFile}: ${cls.desc}`,
