@@ -212,6 +212,14 @@ gates the derived trees):
   can decide: **retire the mirror in favour of a fork of `sean-lab/mission-studio`**
   (the MIT upstream), or keep it as the byte-exact deploy snapshot.
 
+## Boot test (2026-10-27)
+
+- Entry: `http://127.0.0.1:4866/apps/mission-studio/` served by `tools/serve.mjs` with the network blocked (`MAP * 127.0.0.1`).
+- Outcome: **rendered** — the Pre-flight mission setup appeared, and `Fly this mission ▶` launched Apollo 11: the 3D Saturn V lifting off LC-39A at T+00:00:29 with the live console, telemetry and mission timeline.
+- Evidence: body 4563 chars; canvas 1262x568; 0 console errors; 0 failed same-origin requests, 1 blocked cross-origin; screenshot `docs/boot-2026-10-27.png`.
+- Gaps seen: none.
+- This confirms the mirror's existing playable-build claim (the 2026-10-13 boot record): the build is neither absent nor gated, and the boot refutes nothing.
+
 ## Mirror conventions
 
 - **Capture layer** — the captured files are byte-exact copies of what the
