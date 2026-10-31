@@ -1,5 +1,5 @@
 // index-inline-1 14 — opt
-// Lines 4364-4677 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 4486-4799 of readable/index-inline-1.pretty.js (statement-aligned).
 function simulateWingedEntry(opt) {
   const mu = BODIES.earth.mu,
     R = BODIES.earth.R,

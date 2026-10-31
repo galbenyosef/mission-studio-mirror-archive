@@ -1,5 +1,5 @@
 // index-inline-1 10 — math
-// Lines 2826-3461 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 2948-3583 of readable/index-inline-1.pretty.js (statement-aligned).
 function simulateAscent(opt) {
   const body = opt.body || "earth",
     B = BODIES[body],

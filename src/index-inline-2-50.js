@@ -1,187 +1,351 @@
-// index-inline-2 50 — math
-// Lines 14275-14459 of readable/index-inline-2.pretty.js (statement-aligned).
-function padArm(len, w, hgt, m, o = {}) {
-  const k = padKit(),
-    M = padMats(),
-    b = 0.28;
-  const top = [
-      [-w / 2, hgt],
-      [w / 2, hgt],
-    ],
-    bot = [
-      [-w / 2, 0],
-      [w / 2, 0],
-    ];
-  for (const [x, y] of [...top, ...bot])
-    k.beam(m, new THREE.Vector3(x, y, 0), new THREE.Vector3(x, y, -len), b);
-  const nb = Math.max(2, Math.round(len / 2.2));
-  for (let i = 0; i <= nb; i++) {
-    const z = (-len * i) / nb,
-      z2 = (-len * (i + 1)) / nb;
-    k.beam(
-      m,
-      new THREE.Vector3(-w / 2, 0, z),
-      new THREE.Vector3(w / 2, 0, z),
-      b * 0.7,
-    );
-    k.beam(
-      m,
-      new THREE.Vector3(-w / 2, hgt, z),
-      new THREE.Vector3(w / 2, hgt, z),
-      b * 0.7,
-    );
-    for (const x of [-w / 2, w / 2]) {
-      k.beam(
-        m,
-        new THREE.Vector3(x, 0, z),
-        new THREE.Vector3(x, hgt, z),
-        b * 0.7,
-      );
-      if (i < nb)
-        k.beam(
-          m,
-          new THREE.Vector3(x, 0, z),
-          new THREE.Vector3(x, hgt, z2),
-          b * 0.55,
-        );
+// index-inline-2 50 — three
+// Lines 13815-14163 of readable/index-inline-2.pretty.js (statement-aligned).
+class Trail {
+  constructor(o, md, primary) {
+    this.o = o;
+    this.md = md;
+    this.primary = primary;
+    this.cache = {};
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: GLSL_TRAIL_V,
+      fragmentShader: GLSL_TRAIL_F,
+      uniforms: {
+        uNow: { value: 0 },
+        uFuture: { value: 0.45 },
+        uAlpha: { value: primary ? 0.95 : 0.7 },
+        uWinP: TRAIL_U.uWinP,
+        uWinF: TRAIL_U.uWinF,
+      },
+      transparent: true,
+      depthWrite: false,
+    });
+    this.line = new THREE.LineSegments(new THREE.BufferGeometry(), this.mat);
+    this.line.frustumCulled = false;
+    this.line.renderOrder = 3;
+    const U = this.mat.uniforms;
+    this.fatMat = new THREE.ShaderMaterial({
+      vertexShader: GLSL_FAT_V,
+      fragmentShader: GLSL_FAT_F,
+      uniforms: {
+        uNow: U.uNow,
+        uFuture: U.uFuture,
+        uAlpha: { value: primary ? 0.97 : 0.85 },
+        uRes: TRAIL_U.uRes,
+        uWidth: TRAIL_U.uWidth,
+        uCol: { value: new THREE.Color(PCOL.burn) },
+        uCore: { value: new THREE.Color(PCOL.burnCore) },
+        uWinP: TRAIL_U.uWinP,
+        uWinF: TRAIL_U.uWinF,
+      },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.fat = new THREE.Mesh(new THREE.BufferGeometry(), this.fatMat);
+    this.fat.frustumCulled = false;
+    this.fat.renderOrder = 4;
+    this.fat.visible = false;
+    this.line.add(this.fat);
+    this.mkMat = new THREE.ShaderMaterial({
+      vertexShader: GLSL_MK_V,
+      fragmentShader: GLSL_MK_F,
+      uniforms: {
+        uNow: U.uNow,
+        uFuture: U.uFuture,
+        uSize: TRAIL_U.uMk,
+        uCol: { value: new THREE.Color(PCOL.burn) },
+        uWinP: TRAIL_U.uWinP,
+        uWinF: TRAIL_U.uWinF,
+      },
+      transparent: true,
+      depthWrite: false,
+    });
+    this.mk = new THREE.Points(new THREE.BufferGeometry(), this.mkMat);
+    this.mk.frustumCulled = false;
+    this.mk.renderOrder = 5;
+    this.mk.visible = false;
+    this.line.add(this.mk);
+    R.scene.add(this.line);
+    this.sample();
+  }
+  sample() {
+    const o = this.o,
+      ts = [],
+      P = [],
+      brk = [],
+      pw = [];
+    const imp = this.md.impList.filter((x) => x.obj === o.id); // burns applied as an instant Δv: sample their real duration too
+    const inImp = (t) => {
+      for (const x of imp) if (t >= x.t0 && t < x.t1) return true;
+      return false;
+    };
+    let lastEnd = null;
+    for (const sg of o.segs) {
+      if (sg.type === "surface") {
+        lastEnd = null;
+        continue;
+      }
+      const push = (t, s, b) => {
+        const H = helio(s.ref, t).r;
+        ts.push(t);
+        P.push(H[0] + s.r[0], H[1] + s.r[1], H[2] + s.r[2]);
+        brk.push(b ? 1 : 0);
+        pw.push(s.T > 0 || (imp.length && inImp(t)) ? 1 : 0);
+      };
+      let first = lastEnd == null || sg.t0 - lastEnd > 2;
+      {
+        let t = sg.t0;
+        const span = sg.t1 - sg.t0;
+        const s0 = sg.stateAt(t);
+        const el = rv2coe(s0.r, s0.v, BODIES[s0.ref].mu);
+        let k = 0.016;
+        if (el.e < 1 && el.period && span / el.period > 25)
+          k = 0.016 * Math.min(4, span / el.period / 25);
+        let n = 0;
+        while (t < sg.t1 && n < 200000) {
+          const s = sg.stateAt(t);
+          push(t, s, first);
+          first = false;
+          n++;
+          const rr = vnorm(s.r),
+            vv = Math.max(vnorm(s.v), 1e-4);
+          let dt = (k * rr) / vv;
+          dt = clamp(
+            dt,
+            s.ref === "sun" ? 1800 : 0.5,
+            s.ref === "sun" ? 2 * DAY : 0.5 * DAY,
+          );
+          if (sg.type === "burn")
+            dt = Math.min(dt, Math.max((sg.t1 - sg.t0) / 20, 0.5));
+          if (sg.type === "samples")
+            dt = Math.min(
+              dt,
+              Math.max((4 * (sg.t1 - sg.t0)) / Math.max(sg.n - 1, 1), 0.5),
+            );
+          for (const x of imp) {
+            if (x.t0 > t && x.t0 < t + dt) dt = x.t0 - t;
+            else if (t >= x.t0 && t < x.t1)
+              dt = Math.min(dt, Math.max((x.t1 - x.t0) / 12, 0.5), x.t1 - t);
+          }
+          t += dt;
+        }
+        const s = sg.stateAt(sg.t1);
+        push(sg.t1, s, false);
+      }
+      lastEnd = sg.t1;
     }
-  }
-  k.box(M.floor, 0, 0.05, -len / 2, w * 0.9, 0.12, len); // walkway
-  if (o.room) {
-    const r = o.room;
-    const g = new THREE.BoxGeometry(r[0], r[1], r[2]);
-    g.translate(0, r[1] / 2, -len + r[2] / 2 - 0.2);
-    k.geo(o.roomMat || M.white, g);
-  } // the white room at the end
-  if (o.line)
-    k.rod(
-      M.steelD,
-      new THREE.Vector3(0, -0.4, 0),
-      new THREE.Vector3(0, -0.4, -len - 0.4),
-      0.18,
-    ); // a propellant line under it
-  return k.build();
-}
-// a sphere tank on a ring of legs (LOX and LH2 storage)
-function padSphere(k, e, n, r, m) {
-  const M = padMats(),
-    y = r * 1.25;
-  k.sphere(m || M.white, e, y, n, r, 28);
-  for (let i = 0; i < 10; i++) {
-    const a = (i * TAU) / 10;
-    k.beam(
-      M.galv,
-      PV(e + Math.cos(a) * r * 0.9, 0, n + Math.sin(a) * r * 0.9),
-      PV(e + Math.cos(a) * r * 0.97, y, n + Math.sin(a) * r * 0.97),
-      0.6,
-    );
-  }
-  k.box(M.concreteD, e, 0, n, r * 2.4, 0.4, r * 2.4);
-}
-// a water tower: a cylindrical tank on a lattice of legs
-function padWaterTower(k, e, n, h, rTank, hTank) {
-  const M = padMats(),
-    y0 = h - hTank;
-  k.cyl(M.greyL, e, y0, n, rTank, rTank, hTank, 28);
-  k.cyl(M.greyL, e, h, n, rTank, rTank * 0.3, 2.5, 28);
-  for (let i = 0; i < 6; i++) {
-    const a = (i * TAU) / 6,
-      a2 = ((i + 1) * TAU) / 6,
-      rb = rTank * 1.15,
-      rt = rTank * 0.75;
-    k.beam(
-      M.galv,
-      PV(e + Math.cos(a) * rb, 0, n + Math.sin(a) * rb),
-      PV(e + Math.cos(a) * rt, y0, n + Math.sin(a) * rt),
-      0.9,
-    );
-    for (let j = 1; j < 4; j++) {
-      const f = j / 4,
-        y = y0 * f,
-        r = rb + (rt - rb) * f;
-      k.beam(
-        M.galv,
-        PV(e + Math.cos(a) * r, y, n + Math.sin(a) * r),
-        PV(e + Math.cos(a2) * r, y, n + Math.sin(a2) * r),
-        0.4,
-      );
+    this.ts = Float64Array.from(ts);
+    this.P = Float64Array.from(P);
+    this.brk = Uint8Array.from(brk);
+    this.pw = Uint8Array.from(pw);
+    const n = this.ts.length,
+      tt = new Float32Array(n);
+    for (let i = 0; i < n; i++) tt[i] = this.ts[i] - this.md.M.t0;
+    this.tt = tt;
+    this.colorize();
+    const idx = [];
+    for (let i = 0; i + 1 < n; i++) if (!this.brk[i + 1]) idx.push(i, i + 1);
+    this.idx = idx.length > 65535 ? new Uint32Array(idx) : new Uint16Array(idx);
+    const ps = [];
+    for (let i = 0; i + 1 < n; i++)
+      if (this.pw[i] && !this.brk[i + 1]) ps.push(i);
+    this.pwSegs = ps;
+    // burn markers at the middle of each engine-on interval of this craft
+    const mt = [],
+      mP = [];
+    for (const x of this.md.powered) {
+      if (x.obj !== o.id) continue;
+      const tm = (x.t0 + x.t1) / 2;
+      const s = o.stateAt(tm);
+      if (!s || s.surface) continue;
+      const H = helio(s.ref, tm).r;
+      mt.push(tm);
+      mP.push(H[0] + s.r[0], H[1] + s.r[1], H[2] + s.r[2]);
     }
+    this.mts = Float64Array.from(mt);
+    this.mP = Float64Array.from(mP);
   }
-  k.cyl(M.galv, e, 0, n, 1.2, 1.2, y0, 12);
-}
-// a lightning tower: a steel lattice of triangular section (side w) h tall, a fibreglass mast on top
-function padLightningTower(k, e, n, h, mast, w = 3.2) {
-  const M = padMats(),
-    r = w / Math.sqrt(3),
-    C = [0, 1, 2].map((i) => [
-      Math.cos((i * TAU) / 3 + 0.5) * r,
-      Math.sin((i * TAU) / 3 + 0.5) * r,
-    ]);
-  const top = r * 0.35,
-    lv = Math.round(h / 5);
-  for (const [a, b] of C)
-    k.beam(
-      M.galv,
-      PV(e + a, 0, n + b),
-      PV(e + (a * top) / r, h, n + (b * top) / r),
-      0.45,
-    );
-  for (let i = 0; i < lv; i++) {
-    const f = i / lv,
-      f2 = (i + 1) / lv,
-      s = 1 + (top / r - 1) * f,
-      s2 = 1 + (top / r - 1) * f2;
-    for (let c = 0; c < 3; c++) {
-      const [a1, b1] = C[c],
-        [a2, b2] = C[(c + 1) % 3];
-      k.beam(
-        M.galv,
-        PV(e + a1 * s, h * f, n + b1 * s),
-        PV(e + a2 * s, h * f, n + b2 * s),
-        0.25,
-      );
-      k.beam(
-        M.galv,
-        PV(e + a1 * s, h * f, n + b1 * s),
-        PV(e + a2 * s2, h * f2, n + b2 * s2),
-        0.2,
-      );
+  colorize() {
+    // coasting arcs: cool blue (or the mission-phase colour); engine-on arcs: hot orange
+    const n = this.ts.length,
+      col = new Float32Array(3 * n);
+    const byPhase = !!MV.layers.phasecol;
+    const coast = hexToRgb(
+        this.primary ? PCOL.coast : this.o.color || "#7fd1ff",
+      ),
+      burn = hexToRgb(PCOL.burn);
+    for (let i = 0; i < n; i++) {
+      let c = coast;
+      if (this.pw[i]) c = burn;
+      else if (this.primary && byPhase) {
+        const ph = this.md.phaseAt(this.ts[i]);
+        if (ph && ph.color) c = hexToRgb(ph.color);
+      }
+      col[3 * i] = c[0];
+      col[3 * i + 1] = c[1];
+      col[3 * i + 2] = c[2];
     }
+    this.col = col;
+    this.byPhase = byPhase;
   }
-  k.cyl(M.fibre, e, h, n, 0.45, 0.18, mast, 10);
-  return PV(e, h + mast, n);
-}
-// The automatic camera's launch shot looks at the vehicle from wherever the light is best; these are the directions it
-// should not take, because a tower would stand in front of the vehicle: [azimuth, half-width] in degrees, the azimuth
-// counted from east toward north as the chase camera counts it, for a structure centred at (e, n) w across (half-width)
-// beside a vehicle rv across
-const padBlock = (e, n, w, rv) => [
-  Math.atan2(n, e) * RAD,
-  Math.asin(Math.min(1, (w + rv * 0.5) / Math.hypot(e, n))) * RAD + 4,
-];
-const KSC_SPHERES = [
-  [-260, 290],
-  [270, 300],
-]; // the oxygen (northwest) and hydrogen (northeast) spheres of Pads 39A and 39B
-// a propellant sphere stands about half as far out as the launch shot's camera and would loom large in the frame: keep it
-// out of the picture (w: the sideways clearance that takes, from the camera's usual distance)
-const sphereBlock = (e, n, w = 140) => padBlock(e, n, w, 0);
-// a sagging wire between two points (a lightning catenary)
-function padWire(g, a, b, sag) {
-  const pts = [];
-  for (let i = 0; i <= 24; i++) {
-    const f = i / 24;
-    const p = a.clone().lerp(b, f);
-    p.y -= sag * 4 * f * (1 - f);
-    pts.push(p);
+  frameCoords(frame) {
+    if (!this.cache[frame])
+      this.cache[frame] = toFrameArr(frame, this.ts, this.P);
+    return this.cache[frame];
   }
-  g.add(
-    new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      padMats().wire,
-    ),
-  );
+  markerCoords(frame) {
+    const k = "mk:" + frame;
+    if (!this.cache[k]) this.cache[k] = toFrameArr(frame, this.mts, this.mP);
+    return this.cache[k];
+  }
+  build(frame, anchor, tNow) {
+    // with a time window (Earth-orbit flights: a few orbits of a two-week flight), only the points inside it go to the GPU
+    const F = this.frameCoords(frame),
+      N = this.ts.length,
+      wP = TRAIL_U.uWinP.value,
+      wF = TRAIL_U.uWinF.value,
+      win = wP < 1e11 && tNow != null;
+    let i0 = 0,
+      i1 = N - 1;
+    if (win) {
+      const lo = tNow - wP - TRAIL_PAD,
+        hi = tNow + wF + TRAIL_PAD;
+      i0 = Math.max(0, bsearch(this.ts, lo));
+      i1 = Math.min(N - 1, bsearch(this.ts, hi) + 1);
+    }
+    const n = Math.max(0, i1 - i0 + 1),
+      pos = new Float32Array(3 * n);
+    for (let i = 0; i < n; i++) {
+      const k = 3 * (i0 + i);
+      pos[3 * i] = F[k] - anchor[0];
+      pos[3 * i + 1] = F[k + 1] - anchor[1];
+      pos[3 * i + 2] = F[k + 2] - anchor[2];
+    }
+    const g = this.line.geometry;
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute(
+      "aC",
+      new THREE.BufferAttribute(
+        win ? this.col.subarray(3 * i0, 3 * (i1 + 1)) : this.col,
+        3,
+      ),
+    );
+    g.setAttribute(
+      "aT",
+      new THREE.BufferAttribute(
+        win ? this.tt.subarray(i0, i1 + 1) : this.tt,
+        1,
+      ),
+    );
+    let idx = this.idx;
+    if (win) {
+      const a = [];
+      for (let i = i0; i < i1; i++)
+        if (!this.brk[i + 1]) a.push(i - i0, i + 1 - i0);
+      idx = n > 65535 ? new Uint32Array(a) : new Uint16Array(a);
+    }
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    // engine-on ribbon: 4 corners per segment; the far-end corners carry the opposite side sign because their "other" point is behind them
+    const segs = win
+        ? this.pwSegs.filter((i) => i >= i0 && i < i1).map((i) => i - i0)
+        : this.pwSegs,
+      m = segs.length,
+      ttW = win ? this.tt.subarray(i0, i1 + 1) : this.tt;
+    if (m) {
+      const P4 = new Float32Array(12 * m),
+        O4 = new Float32Array(12 * m),
+        S4 = new Float32Array(4 * m),
+        E4 = new Float32Array(4 * m),
+        T4 = new Float32Array(4 * m),
+        I6 = 4 * m > 65535 ? new Uint32Array(6 * m) : new Uint16Array(6 * m);
+      for (let k = 0; k < m; k++) {
+        const i = segs[k],
+          j = i + 1,
+          v = 4 * k,
+          o12 = 12 * k;
+        for (let q = 0; q < 3; q++) {
+          const A = pos[3 * i + q],
+            B = pos[3 * j + q];
+          P4[o12 + q] = A;
+          P4[o12 + 3 + q] = A;
+          P4[o12 + 6 + q] = B;
+          P4[o12 + 9 + q] = B;
+          O4[o12 + q] = B;
+          O4[o12 + 3 + q] = B;
+          O4[o12 + 6 + q] = A;
+          O4[o12 + 9 + q] = A;
+        }
+        S4[v] = 1;
+        S4[v + 1] = -1;
+        S4[v + 2] = -1;
+        S4[v + 3] = 1; // offset sign (relative to each corner's own direction)
+        E4[v] = 1;
+        E4[v + 1] = -1;
+        E4[v + 2] = 1;
+        E4[v + 3] = -1; // which edge of the ribbon the corner is on (for the soft edge)
+        T4[v] = T4[v + 1] = ttW[i];
+        T4[v + 2] = T4[v + 3] = ttW[j];
+        I6[6 * k] = v;
+        I6[6 * k + 1] = v + 1;
+        I6[6 * k + 2] = v + 2;
+        I6[6 * k + 3] = v + 1;
+        I6[6 * k + 4] = v + 3;
+        I6[6 * k + 5] = v + 2;
+      }
+      const fg = this.fat.geometry;
+      fg.setAttribute("position", new THREE.BufferAttribute(P4, 3));
+      fg.setAttribute("aOther", new THREE.BufferAttribute(O4, 3));
+      fg.setAttribute("aSide", new THREE.BufferAttribute(S4, 1));
+      fg.setAttribute("aEdge", new THREE.BufferAttribute(E4, 1));
+      fg.setAttribute("aT", new THREE.BufferAttribute(T4, 1));
+      fg.setIndex(new THREE.BufferAttribute(I6, 1));
+    }
+    this.fat.visible = m > 0;
+    const nm = this.mts.length;
+    if (nm) {
+      const MF = this.markerCoords(frame),
+        mp = new Float32Array(3 * nm),
+        mt = new Float32Array(nm);
+      for (let i = 0; i < nm; i++) {
+        mp[3 * i] = MF[3 * i] - anchor[0];
+        mp[3 * i + 1] = MF[3 * i + 1] - anchor[1];
+        mp[3 * i + 2] = MF[3 * i + 2] - anchor[2];
+        mt[i] = this.mts[i] - this.md.M.t0;
+      }
+      const mg = this.mk.geometry;
+      mg.setAttribute("position", new THREE.BufferAttribute(mp, 3));
+      mg.setAttribute("aT", new THREE.BufferAttribute(mt, 1));
+    }
+    this.mk.visible = nm > 0;
+    this.anchor = anchor.slice();
+    this.frame = frame;
+    this.builtT = tNow;
+  }
+  dispose() {
+    R.scene.remove(this.line);
+    this.line.geometry.dispose();
+    this.fat.geometry.dispose();
+    this.mk.geometry.dispose();
+    this.mat.dispose();
+    this.fatMat.dispose();
+    this.mkMat.dispose();
+  }
 }
-// The ground around a pad: scrub and grass (a repeating mottled texture, 80 m to a tile) out to r, cut off at the coast
-// (o.sea: the bearing of the sea, degrees; o.shore: the shoreline's distance) with a beach before it, and the roads given
-// as strips [[e0, n0, e1, n1, width] …]. Without it the pad would stand on the globe's coarse texture (often sea there).
+// Earth–Moon rotating frame: columns x̂ (to Moon), ŷ, ẑ (orbit normal); returns row-major matrix with those columns
+function emRot(t) {
+  const m = moonGeo(t);
+  const x = vunit(m.r),
+    z = vunit(vcross(m.r, m.v)),
+    y = vcross(z, x);
+  return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+}
+// the rotating frames: both centred on the Earth, 'emrot' turning with the Moon, 'serot' (the Sun–Earth frame of src/halo.js) with the Sun
+function frameBody(frame) {
+  return frame === "emrot" || frame === "serot" ? "earth" : frame;
+}
+function frameRot(frame, t) {
+  return frame === "emrot" ? emRot(t) : frame === "serot" ? seRot(t) : null;
+}
+function frameOrigin(frame, t) {
+  return frame === "sun" ? [0, 0, 0] : helio(frameBody(frame), t).r;
+}

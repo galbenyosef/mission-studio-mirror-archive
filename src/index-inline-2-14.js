@@ -1,5 +1,5 @@
 // index-inline-2 14 — scale
-// Lines 3675-3793 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 3708-3826 of readable/index-inline-2.pretty.js (statement-aligned).
 function rover(scale = 1, color = "#e9e6df") {
   const g = new THREE.Group();
   const body = box(2.2 * scale, 0.7 * scale, 2.9 * scale, mat(color, "paint"));

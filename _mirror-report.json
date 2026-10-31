@@ -7,12 +7,13 @@
   "gated": false,
   "sessionRenewal": "none",
   "requests": 65,
-  "fetched": 33,
-  "bytes": 55868895,
+  "fetched": 39,
+  "bytes": 64492592,
   "paths": [
     "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js",
     "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js",
     "apps/mission-studio/assets/apollo_lm.0c2c313482.glb",
+    "apps/mission-studio/assets/ariane5.cd8cebed0d.glb",
     "apps/mission-studio/assets/earth_aux.3bf717776b.jpg",
     "apps/mission-studio/assets/earth_clouds.85c42a93e9.jpg",
     "apps/mission-studio/assets/earth_clouds_8k.87f5cced5f.jpg",
@@ -22,6 +23,7 @@
     "apps/mission-studio/assets/earth_night_8k.d858fe1094.jpg",
     "apps/mission-studio/assets/iss.93dcb2db5f.glb",
     "apps/mission-studio/assets/jupiter.efa4857ae7.jpg",
+    "apps/mission-studio/assets/jwst.a6c3528675.glb",
     "apps/mission-studio/assets/mars.55a8499eae.jpg",
     "apps/mission-studio/assets/mars_4k.198fa949d9.jpg",
     "apps/mission-studio/assets/mars_8k.2b287e5c8f.jpg",
@@ -40,6 +42,10 @@
     "apps/mission-studio/assets/saturnv.7a0913aa0b.glb",
     "apps/mission-studio/assets/shuttle_stack.9526e4715a.glb",
     "apps/mission-studio/assets/stars.b686ef8f1d.json",
+    "apps/mission-studio/assets/terrain_edwards.8f322d03f6.json",
+    "apps/mission-studio/assets/terrain_ksc.450146f0c2.json",
+    "apps/mission-studio/assets/terrain_starbase.d6bfffa20c.json",
+    "apps/mission-studio/assets/terrain_whitesands.ddda2f4cc9.json",
     "apps/mission-studio/assets/three.module.min.3e690ac7d1.js",
     "apps/mission-studio/assets/venus.d02db3e21e.jpg",
     "apps/mission-studio/index.html"
@@ -82,5 +88,67 @@
     "boot test: served on loopback, the app booted to the Pre-flight mission setup, Apollo 11 was selected and flown (Fly this mission), the pad countdown ran and the mission played; cover = docs/cover.png (Eagle in powered descent over the Moon, 479 m, T+4d 07:34:30), boot evidence = docs/boot-2026-10-13.png (Saturn V on LC-39A at T-00:00:10); the automation window was background-throttled (rAF paused) so later mission epochs were reached through the app's own timeline scrub (__ms.setTime + renderFrame, the same render path); listener PID killed and port 8095 proved closed (netstat)",
     "section 0.4 fork-over-mirror checked 2026-10-13: a public source repo EXISTS — the project's own page (sanghyunpark.pages.dev/projects/mission-studio/) links https://github.com/sean-lab/mission-studio (public, MIT license, created 2026-10-10, pushed 2026-10-12, ~53 MB; its README links this deploy and its assets/ holds the un-hashed source assets the deploy's build.js hashes). The captured bundle itself carries no repo link and the in-page credits are asset credits only. Per PLAN 0.4 the fleet prefers a fork over a mirror when the source is publicly obtainable (kino-der-toten precedent) — recorded here as an open decision for the coordinator; the mirror is delivered as instructed",
     "soft-404 caveat for the drift probe: unknown paths answer 200 + text/html homepage fallback (13,064 B) instead of 404; tools/update.mjs detects that (non-HTML capture answered as text/html -> live-missing)"
+  ],
+  "refreshes": [
+    {
+      "date": "2026-10-31",
+      "tool": "tools/update.mjs --pull --apply",
+      "trustGate": "32/33 captured files reproduced byte-for-byte; 1 changed upstream",
+      "replaced": [
+        {
+          "path": "apps/mission-studio/index.html",
+          "from": {
+            "bytes": 1151899,
+            "sha256": "84ee7775bb889f88b112be4c8ca47edf822460c2a6fa469fc42fbbb0f6189418"
+          },
+          "to": {
+            "bytes": 1348561,
+            "sha256": "4daf66773242a7cbb4f52b1092fc1a7cceb5d0a02d54a353bd30c4c215532951"
+          },
+          "legacy": "legacy/2026-10-31/apps/mission-studio/index.html"
+        }
+      ],
+      "added": [
+        {
+          "path": "apps/mission-studio/assets/ariane5.cd8cebed0d.glb",
+          "bytes": 603448,
+          "sha256": "cd8cebed0daf36b4748c9eee835fe04544c174895ecbe455fa2352d7ffbfabe1",
+          "why": "ASSET_MAP[\"ariane5.glb\"]"
+        },
+        {
+          "path": "apps/mission-studio/assets/jwst.a6c3528675.glb",
+          "bytes": 1594384,
+          "sha256": "a6c35286750fdba07fcdaf7c78ede49b62c25bde8296fe6940ba7ac23d35c072",
+          "why": "ASSET_MAP[\"jwst.glb\"]"
+        },
+        {
+          "path": "apps/mission-studio/assets/terrain_edwards.8f322d03f6.json",
+          "bytes": 2681807,
+          "sha256": "8f322d03f6830dd7ea3e4254b2dfeec2bb36501d8d2c99b9fbc7d275fb65dd08",
+          "why": "ASSET_MAP[\"terrain_edwards.json\"]"
+        },
+        {
+          "path": "apps/mission-studio/assets/terrain_ksc.450146f0c2.json",
+          "bytes": 1288515,
+          "sha256": "450146f0c267055f8065c3ee50d5759dc0495c7a5de313c08ba9ae6a04452355",
+          "why": "ASSET_MAP[\"terrain_ksc.json\"]"
+        },
+        {
+          "path": "apps/mission-studio/assets/terrain_starbase.d6bfffa20c.json",
+          "bytes": 1063816,
+          "sha256": "d6bfffa20ca7797a6c11a18b36965ec9f94c41cdd4288d1a59fcf136fbaa280e",
+          "why": "ASSET_MAP[\"terrain_starbase.json\"]"
+        },
+        {
+          "path": "apps/mission-studio/assets/terrain_whitesands.ddda2f4cc9.json",
+          "bytes": 1195065,
+          "sha256": "ddda2f4cc9dd26f2ff80cd25137676f40122c87347f1df8686218ea215a34fe3",
+          "why": "ASSET_MAP[\"terrain_whitesands.json\"]"
+        }
+      ],
+      "upstreamGone": [],
+      "unreferencedStillServed": [],
+      "external": "unchanged — Google Fonts stays an external CDN dependency; nothing under /api/ fetched"
+    }
   ]
 }

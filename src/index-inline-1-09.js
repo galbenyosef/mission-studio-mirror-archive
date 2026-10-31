@@ -1,5 +1,5 @@
 // index-inline-1 09 — math
-// Lines 2669-2825 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 2791-2947 of readable/index-inline-1.pretty.js (statement-aligned).
 function scMass(sc, ids) {
   if (!ids) return 0;
   let m = 0;

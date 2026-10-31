@@ -1,5 +1,5 @@
 // index-inline-1 19 — cfg
-// Lines 5967-7392 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 6089-7514 of readable/index-inline-1.pretty.js (statement-aligned).
 function planLunar(cfg, progress = () => {}) {
   const M = new Mission(cfg);
   const L = LAUNCHERS[cfg.launcher],

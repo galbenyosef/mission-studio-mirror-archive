@@ -1,5 +1,5 @@
 // index-inline-1 07 — ramp
-// Lines 2037-2189 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 2137-2295 of readable/index-inline-1.pretty.js (statement-aligned).
 LAUNCHERS.shuttle = {
   name: "Space Shuttle",
   org: "NASA (USA)",
@@ -108,6 +108,7 @@ LAUNCHERS.shuttle = {
 //   Atlas V: RD-180 ignition at T−2.7 s, solids at T−0 (ULA timelines)
 //   Falcon Heavy: 27 Merlins at about T−2 s (Spaceflight Now) · Starship: about T−3 s (press reports)
 //   Long March 5: core and boosters ignite before liftoff (time approximate) · Atlas LV-3: approximate
+//   Ariane 5: the Vulcain 2 at H0, the boosters at H0 + 7.05 s after its health check, liftoff at H0 + 7.3 s (Arianespace)
 //   LVM3: the S200 solids light at T−0 and the L110 core is air-started, so nothing burns on the pad beforehand
 const PAD_IGNITION = {
   saturnV: {
@@ -128,6 +129,11 @@ const PAD_IGNITION = {
   lm5: { t: 3.0, ramp: 1.6, approx: true },
   starship: { t: 3.0, ramp: 1.6, approx: true },
   lvm3: { t: 0, ramp: 0 },
+  ariane5ECA: {
+    t: 7.3,
+    ramp: 3.0,
+    seq: "the Vulcain 2 lights at H0 and is checked for seven seconds; the boosters light and the vehicle leaves at H0 + 7.3 s",
+  },
   shuttle: {
     t: 6.6,
     ramp: 3.0,

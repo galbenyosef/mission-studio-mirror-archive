@@ -1,5 +1,5 @@
 // index-inline-1 04 — out
-// Lines 1019-1331 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 1019-1337 of readable/index-inline-1.pretty.js (statement-aligned).
 function hermiteState(t0, y0, f0, t1, y1, f1, t, n) {
   const h = t1 - t0,
     s = (t - t0) / h,
@@ -221,7 +221,7 @@ const PROP = {
   },
   solid: {
     label: "Solid (PBAN / HTPB composite)",
-    plume: "#fff1c4",
+    plume: "#ffd98c",
     smoke: true,
   },
   hypergolic: {
@@ -306,6 +306,12 @@ const LAUNCH_SITES = {
     lat: 46.07,
     lon: 63.65,
     azRange: [35, 65],
+  },
+  KOUROU3: {
+    name: "Guiana Space Centre ELA-3, Kourou",
+    lat: 5.2392,
+    lon: -52.7685,
+    azRange: [-10.5, 93.5],
   },
 };
 

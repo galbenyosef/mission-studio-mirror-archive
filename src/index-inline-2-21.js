@@ -1,5 +1,139 @@
 // index-inline-2 21 — three
-// Lines 5718-6037 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 5689-6002 of readable/index-inline-2.pretty.js (statement-aligned).
+const SH_MAIN_CONTACT = [8.8, -6.03],
+  SH_NOSE_CONTACT = [29.0, -4.48],
+  SH_MAIN_TRACK = 3.72; // main wheels ±3.72 m out
+const SH_GEAR_H = -SH_MAIN_CONTACT[1]; // m: the reference plane (Z = 0) above the main wheels' contact, wings level (the flight planner's gear height)
+const SH_STANCE = -Math.atan2(
+  SH_NOSE_CONTACT[1] - SH_MAIN_CONTACT[1],
+  SH_NOSE_CONTACT[0] - SH_MAIN_CONTACT[0],
+); // rad: the attitude on the ground, −4.4°
+// engine nozzle exits (from the scan): [x, exit Y, z]; three RS-25s (2.29 m exits) and the two OMS engines
+const SH_SSME = [
+    [0.02, -1.81, 1.96],
+    [-1.56, -2.49, -0.95],
+    [1.58, -2.47, -1.01],
+  ],
+  SH_OMSE = [
+    [-2.97, -1.0, 2.28],
+    [2.97, -1.0, 2.28],
+  ];
+const SH_BAY = [5.6, 23.9]; // payload bay doors, Y range
+const SH_HINGE = 24 * DEG; // door hinge on the fuselage section (superellipse angle)
+const SH_OMS_X = 2.6; // OMS pod centrelines
+const SH_E = 2 / 2.6,
+  SH_EB = 2 / 4.5; // superellipse exponents: rounded-square top, flat belly
+function vcMat(extra = {}) {
+  return new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.66,
+    metalness: 0.03,
+    ...extra,
+  });
+}
+// colour every vertex of a geometry from its position and normal
+function paintGeo(g, fn) {
+  const p = g.attributes.position,
+    n = g.attributes.normal,
+    c = new Float32Array(p.count * 3),
+    col = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    col.set(
+      fn(p.getX(i), p.getY(i), p.getZ(i), n.getX(i), n.getY(i), n.getZ(i)),
+    );
+    c[3 * i] = col.r;
+    c[3 * i + 1] = col.g;
+    c[3 * i + 2] = col.b;
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(c, 3));
+  return g;
+}
+// point on a fuselage section s = [y, zc, a (half width), bTop, bBot] at angle th (0 = starboard side, 90° = top)
+function shRing(s, th) {
+  const c = Math.cos(th),
+    sn = Math.sin(th);
+  const x = s[2] * Math.sign(c) * Math.pow(Math.abs(c), sn >= 0 ? SH_E : SH_EB);
+  const z =
+    sn >= 0
+      ? s[1] + s[3] * Math.pow(Math.abs(sn), SH_E)
+      : s[1] - s[4] * Math.pow(Math.abs(sn), SH_EB);
+  return [x, s[0], z];
+}
+// lofted surface through sections; skip(yMid, thMid) leaves quads out (the payload bay opening)
+function loftGeo(st, nSeg, skip) {
+  const pos = [],
+    idx = [];
+  for (const s of st)
+    for (let k = 0; k <= nSeg; k++) pos.push(...shRing(s, (k / nSeg) * TAU));
+  for (let i = 0; i < st.length - 1; i++)
+    for (let k = 0; k < nSeg; k++) {
+      if (
+        skip &&
+        skip(0.5 * (st[i][0] + st[i + 1][0]), ((k + 0.5) / nSeg) * TAU)
+      )
+        continue;
+      const a = i * (nSeg + 1) + k,
+        b = a + 1,
+        c = a + nSeg + 1,
+        d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+// flat cap closing a section (facing −Y when back = true)
+function capGeo(s, nSeg, back) {
+  const pos = [0, s[0], s[1]],
+    idx = [];
+  for (let k = 0; k <= nSeg; k++) pos.push(...shRing(s, (k / nSeg) * TAU));
+  for (let k = 1; k <= nSeg; k++)
+    back ? idx.push(0, k, k + 1) : idx.push(0, k + 1, k);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+const SH_STATIONS = [
+  [0.0, 0.35, 3.25, 2.95, 2.95],
+  [2.6, 0.3, 3.1, 2.85, 2.9],
+  [SH_BAY[0], -0.1, 2.62, 2.5, 2.5],
+  [SH_BAY[1], -0.1, 2.62, 2.5, 2.5],
+  [25.0, 0.05, 2.56, 2.75, 2.6],
+  [26.8, 0.35, 2.45, 2.95, 2.75],
+  [28.6, 0.2, 2.2, 2.6, 2.45],
+  [30.3, -0.15, 1.75, 1.95, 2.0],
+  [31.6, -0.55, 1.15, 1.25, 1.45],
+  [32.35, -0.85, 0.6, 0.62, 0.85],
+  [32.75, -1.0, 0.06, 0.06, 0.08],
+];
+function shuttleFuselage() {
+  const bay = (y, th) =>
+    y > SH_BAY[0] && y < SH_BAY[1] && th > SH_HINGE && th < Math.PI - SH_HINGE;
+  const g = loftGeo(SH_STATIONS, 64, bay);
+  paintGeo(g, (x, y, z, nx, ny, nz) => {
+    if (
+      y > 25.6 &&
+      y < 28.9 &&
+      z > 1.95 &&
+      Math.abs(x) < 2.0 &&
+      (nz > 0.3 || ny > 0.35)
+    )
+      return SH_COL.black; // flight-deck windows and their frame
+    if (y > 31.3) return SH_COL.black; // nose cap
+    if (nz < -0.3 || (y > 28.5 && nz < 0.1)) return SH_COL.black; // belly tiles, wrapping up around the chin
+    return SH_COL.white;
+  });
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(g, vcMat()));
+  grp.add(
+    new THREE.Mesh(capGeo(SH_STATIONS[0], 64, true), mat(SH_COL.base, "dark")),
+  ); // base heat shield around the main engines
+  return grp;
+}
 function shuttleWing(side) {
   // double-delta planform: 81° glove, 45° main wing; dark leading edges, black underside
   const P = [
@@ -180,143 +314,3 @@ const SH_BAY_SCAN = {
   floor: -2.3,
   arch: [0.95, 1.4],
 }; // the scan's skin is 2.67–2.72 m out; arch: centre z, height
-function shuttleBayInterior(B = SH_BAY_BUILTIN) {
-  const g = new THREE.Group(),
-    m = mat(SH_COL.bay, "paint", { side: THREE.DoubleSide }),
-    L = SH_BAY[1] - SH_BAY[0],
-    yc = (SH_BAY[0] + SH_BAY[1]) / 2;
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(2 * B.wall + 0.1, L, 0.1),
-    m,
-  );
-  floor.position.set(0, yc, B.floor);
-  g.add(floor);
-  for (const s of [-1, 1]) {
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, L, B.hz - B.floor),
-      m,
-    );
-    wall.position.set(s * B.wall, yc, (B.hz + B.floor) / 2);
-    g.add(wall);
-    const sill = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, L, 0.16),
-      mat("#b8bdc2", "metal"),
-    );
-    sill.position.set(s * (B.wall + 0.05), yc, B.hz - 0.04);
-    g.add(sill); // the sill longeron, inside the skin
-  }
-  const bulk = (y, col, kind) => {
-    let geo;
-    if (B.arch) {
-      // the walls, then the arch of the fuselage's top
-      const [zc, b] = B.arch,
-        sh = new THREE.Shape();
-      sh.moveTo(-B.wall, B.floor);
-      sh.lineTo(B.wall, B.floor);
-      sh.lineTo(B.wall, zc);
-      for (let k = 1; k <= 24; k++) {
-        const t = (k / 24) * Math.PI;
-        sh.lineTo(B.wall * Math.cos(t), zc + b * Math.sin(t));
-      }
-      sh.lineTo(-B.wall, B.floor);
-      geo = new THREE.ShapeGeometry(sh);
-      geo.rotateX(Math.PI / 2);
-    } else {
-      const st = SH_STATIONS[2];
-      geo = capGeo(
-        [0, st[1], st[2] * 0.985, st[3] * 0.985, st[4] * 0.985],
-        48,
-        false,
-      );
-    }
-    const b = new THREE.Mesh(geo, mat(col, kind, { side: THREE.DoubleSide }));
-    b.position.y = y;
-    g.add(b);
-  };
-  bulk(SH_BAY[0] + 0.06, SH_COL.gold, "gold");
-  bulk(SH_BAY[1] - 0.06, "#dfe2e5", "paint");
-  return g;
-}
-function shuttleMainEngines() {
-  // three RS-25s in a triangle, nozzles pointing aft (−Y), throats just inside the base
-  const g = new THREE.Group();
-  for (const [x, ey, z] of SH_SSME) {
-    const len = 0.3 - ey,
-      b = bell(len, 1.145, mat("#4d5055", "metal", { side: THREE.DoubleSide }));
-    b.position.set(x, ey, z);
-    g.add(b);
-  }
-  return g;
-}
-function shuttleGear(down) {
-  // two-wheel main gears (1.13 m tyres) and the nose gear (0.81 m), tyres touching at the scan's contact points
-  const g = new THREE.Group();
-  if (!down) return g;
-  const strutM = mat("#b9bec4", "metal"),
-    tyre = mat("#1a1a1a", "dark");
-  const wheel = (r, w) => {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 22), tyre);
-    c.rotation.z = Math.PI / 2;
-    return c;
-  };
-  const strut = (x, y, z0, z1, r) => {
-    const c = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, z0 - z1, 10),
-      strutM,
-    );
-    c.rotation.x = Math.PI / 2;
-    c.position.set(x, y, (z0 + z1) / 2);
-    return c;
-  };
-  const [ym, zm] = SH_MAIN_CONTACT,
-    [yn, zn] = SH_NOSE_CONTACT,
-    rw = 0.565,
-    rn = 0.405;
-  for (const s of [-1, 1]) {
-    const x = s * SH_MAIN_TRACK;
-    g.add(strut(x, ym, -3.5, zm + rw, 0.17));
-    for (const dx of [-0.4, 0.4]) {
-      const w = wheel(rw, 0.4);
-      w.position.set(x + dx, ym, zm + rw);
-      g.add(w);
-    }
-  }
-  g.add(strut(0, yn, -3.1, zn + rn, 0.13));
-  for (const dx of [-0.26, 0.26]) {
-    const w = wheel(rn, 0.3);
-    w.position.set(dx, yn, zn + rn);
-    g.add(w);
-  }
-  return g;
-}
-// The scan's wheel wells with their doors closed: plates on the belly's tiles (the scan has the doors open, hanging beside
-// the gear). Corners [x, y, z]: the main wells under the wing roots and the nose well.
-function shuttleWellCovers() {
-  const g = new THREE.Group(),
-    m = mat("#17181a", "tile", { side: THREE.DoubleSide });
-  const quad = (c) => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(c.flat(), 3));
-    geo.setIndex([0, 1, 2, 0, 2, 3]);
-    geo.computeVertexNormals();
-    return new THREE.Mesh(geo, m);
-  };
-  for (const s of [-1, 1])
-    g.add(
-      quad([
-        [s * 2.42, 7.8, -3.57],
-        [s * 4.68, 7.8, -3.33],
-        [s * 4.68, 12.6, -3.11],
-        [s * 2.42, 12.6, -3.44],
-      ]),
-    );
-  g.add(
-    quad([
-      [-0.82, 28.2, -3.2],
-      [0.82, 28.2, -3.2],
-      [0.82, 31.3, -3.18],
-      [-0.82, 31.3, -3.18],
-    ]),
-  );
-  return g;
-}

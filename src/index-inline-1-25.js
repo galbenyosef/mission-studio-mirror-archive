@@ -1,5 +1,5 @@
 // index-inline-1 25 — cfg
-// Lines 9181-9584 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 9303-9706 of readable/index-inline-1.pretty.js (statement-aligned).
 function planInterplanetary(cfg, progress = () => {}) {
   const M = new Mission(cfg);
   const H = 3600,

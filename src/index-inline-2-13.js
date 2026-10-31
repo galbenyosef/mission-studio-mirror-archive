@@ -1,5 +1,5 @@
 // index-inline-2 13 — add
-// Lines 3372-3674 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 3403-3707 of readable/index-inline-2.pretty.js (statement-aligned).
 const ROVER_STOW = [
   // wheel0 … wheel5 (rear, middle, front; left, right): its centre when stowed, and its turn (x, y, z, rad)
   [
@@ -109,6 +109,8 @@ const STAGE_D = {
     ],
     bells: true,
   }, // the thrust structure above the cone; the top of the instrument unit
+  "ariane5:EPC": { caps: [[30.45, 2.65, "metal"]] }, // the forward dome, seen once the upper stage has gone
+  "ariane5:ESC-A": { caps: [[0.05, 2.65, "dark"]], bells: true }, // its HM7B, hidden in the core's top until separation
 };
 // Space Shuttle: the external tank and the boosters of a CC BY model of the stack (paburoviii, credited in the README and the
 // app), scaled to their published sizes by tools/models; the orbiter is the Smithsonian's scan. STS-1 and STS-2 flew tanks
@@ -161,7 +163,7 @@ function stageD(st, fallback, opts) {
       if (D.bells)
         for (const p of engineLayout(st.eng)) {
           const b = bell(st.eng.len, st.eng.r);
-          b.position.set(p[0], st.eng.y0, p[1]);
+          b.position.set(p[0], st.eng.y0 ?? -st.eng.len, p[1]);
           g.add(b);
         }
     },

@@ -1,5 +1,5 @@
 // index-inline-2 08 — three
-// Lines 1944-2266 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 1967-2289 of readable/index-inline-2.pretty.js (statement-aligned).
 function bvToRgb(bv) {
   bv = clamp(bv, -0.4, 2.0);
   const stops = [
@@ -99,8 +99,8 @@ function bodyMaterial(name) {
         uSunDir: sunU,
         uLights: { value: 1 },
         uFill: { value: new THREE.Vector3(0, 0, 0) },
-        tDetail: { value: R.detailTex },
-        uDetailAmp: { value: 0.55 },
+        tDetail: { value: R.detailTexEarth },
+        uDetailAmp: { value: 0.5 },
         uDetailRep: { value: new THREE.Vector2(512, 256) },
         ...capUniforms(),
         ...atmosUniforms("earth"),

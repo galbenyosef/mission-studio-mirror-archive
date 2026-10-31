@@ -1,5 +1,5 @@
 // index-inline-1 31 — cfg
-// Lines 10930-11248 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 11052-11370 of readable/index-inline-1.pretty.js (statement-aligned).
 function surfaceStayAndReturn(
   M,
   cfg,

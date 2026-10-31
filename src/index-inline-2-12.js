@@ -1,5 +1,5 @@
 // index-inline-2 12 — math
-// Lines 3022-3371 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 3049-3402 of readable/index-inline-2.pretty.js (statement-aligned).
 function engineLayout(eng) {
   const s = eng.spread || 0,
     out = [];
@@ -306,9 +306,13 @@ function preloadDetailedModels(md) {
       if (o.model === "shuttle") want.add("orbiter");
       if (L.orbiter) orbiterLivery(L.orbiter); // the flight's orbiter in its markings (the stack's and the orbiter's own configurations)
       if (o.model === "iss") want.add("iss");
-      if (L.launcher && LAUNCHERS[L.launcher])
-        for (const st of LAUNCHERS[L.launcher].stages)
-          if (st.detail) want.add(st.detail); // launch stacks and spent stages
+      if (o.model === "jwst") want.add("jwst");
+      if (L.launcher && LAUNCHERS[L.launcher]) {
+        const LL = LAUNCHERS[L.launcher];
+        for (const st of LL.stages) if (st.detail) want.add(st.detail);
+        if (LL.payloadFairing && LL.payloadFairing.detail)
+          want.add(LL.payloadFairing.detail);
+      } // launch stacks and spent stages
     }
   for (const n of want) detailFile(n);
 }

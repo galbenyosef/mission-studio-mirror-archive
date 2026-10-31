@@ -1,5 +1,145 @@
 // index-inline-2 22 — three
-// Lines 6038-6385 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 6003-6349 of readable/index-inline-2.pretty.js (statement-aligned).
+function shuttleBayInterior(B = SH_BAY_BUILTIN) {
+  const g = new THREE.Group(),
+    m = mat(SH_COL.bay, "paint", { side: THREE.DoubleSide }),
+    L = SH_BAY[1] - SH_BAY[0],
+    yc = (SH_BAY[0] + SH_BAY[1]) / 2;
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(2 * B.wall + 0.1, L, 0.1),
+    m,
+  );
+  floor.position.set(0, yc, B.floor);
+  g.add(floor);
+  for (const s of [-1, 1]) {
+    const wall = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, L, B.hz - B.floor),
+      m,
+    );
+    wall.position.set(s * B.wall, yc, (B.hz + B.floor) / 2);
+    g.add(wall);
+    const sill = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, L, 0.16),
+      mat("#b8bdc2", "metal"),
+    );
+    sill.position.set(s * (B.wall + 0.05), yc, B.hz - 0.04);
+    g.add(sill); // the sill longeron, inside the skin
+  }
+  const bulk = (y, col, kind) => {
+    let geo;
+    if (B.arch) {
+      // the walls, then the arch of the fuselage's top
+      const [zc, b] = B.arch,
+        sh = new THREE.Shape();
+      sh.moveTo(-B.wall, B.floor);
+      sh.lineTo(B.wall, B.floor);
+      sh.lineTo(B.wall, zc);
+      for (let k = 1; k <= 24; k++) {
+        const t = (k / 24) * Math.PI;
+        sh.lineTo(B.wall * Math.cos(t), zc + b * Math.sin(t));
+      }
+      sh.lineTo(-B.wall, B.floor);
+      geo = new THREE.ShapeGeometry(sh);
+      geo.rotateX(Math.PI / 2);
+    } else {
+      const st = SH_STATIONS[2];
+      geo = capGeo(
+        [0, st[1], st[2] * 0.985, st[3] * 0.985, st[4] * 0.985],
+        48,
+        false,
+      );
+    }
+    const b = new THREE.Mesh(geo, mat(col, kind, { side: THREE.DoubleSide }));
+    b.position.y = y;
+    g.add(b);
+  };
+  bulk(SH_BAY[0] + 0.06, SH_COL.gold, "gold");
+  bulk(SH_BAY[1] - 0.06, "#dfe2e5", "paint");
+  return g;
+}
+function shuttleMainEngines() {
+  // three RS-25s in a triangle, nozzles pointing aft (−Y), throats just inside the base
+  const g = new THREE.Group();
+  for (const [x, ey, z] of SH_SSME) {
+    const len = 0.3 - ey,
+      b = bell(len, 1.145, mat("#4d5055", "metal", { side: THREE.DoubleSide }));
+    b.position.set(x, ey, z);
+    g.add(b);
+  }
+  return g;
+}
+function shuttleGear(down) {
+  // two-wheel main gears (1.13 m tyres) and the nose gear (0.81 m), tyres touching at the scan's contact points
+  const g = new THREE.Group();
+  if (!down) return g;
+  const strutM = mat("#b9bec4", "metal"),
+    tyre = mat("#1a1a1a", "dark");
+  const wheel = (r, w) => {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 22), tyre);
+    c.rotation.z = Math.PI / 2;
+    return c;
+  };
+  const strut = (x, y, z0, z1, r) => {
+    const c = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, z0 - z1, 10),
+      strutM,
+    );
+    c.rotation.x = Math.PI / 2;
+    c.position.set(x, y, (z0 + z1) / 2);
+    return c;
+  };
+  const [ym, zm] = SH_MAIN_CONTACT,
+    [yn, zn] = SH_NOSE_CONTACT,
+    rw = 0.565,
+    rn = 0.405;
+  for (const s of [-1, 1]) {
+    const x = s * SH_MAIN_TRACK;
+    g.add(strut(x, ym, -3.5, zm + rw, 0.17));
+    for (const dx of [-0.4, 0.4]) {
+      const w = wheel(rw, 0.4);
+      w.position.set(x + dx, ym, zm + rw);
+      g.add(w);
+    }
+  }
+  g.add(strut(0, yn, -3.1, zn + rn, 0.13));
+  for (const dx of [-0.26, 0.26]) {
+    const w = wheel(rn, 0.3);
+    w.position.set(dx, yn, zn + rn);
+    g.add(w);
+  }
+  return g;
+}
+// The scan's wheel wells with their doors closed: plates on the belly's tiles (the scan has the doors open, hanging beside
+// the gear). Corners [x, y, z]: the main wells under the wing roots and the nose well.
+function shuttleWellCovers() {
+  const g = new THREE.Group(),
+    m = mat("#17181a", "tile", { side: THREE.DoubleSide });
+  const quad = (c) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(c.flat(), 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, m);
+  };
+  for (const s of [-1, 1])
+    g.add(
+      quad([
+        [s * 2.42, 7.8, -3.57],
+        [s * 4.68, 7.8, -3.33],
+        [s * 4.68, 12.6, -3.11],
+        [s * 2.42, 12.6, -3.44],
+      ]),
+    );
+  g.add(
+    quad([
+      [-0.82, 28.2, -3.2],
+      [0.82, 28.2, -3.2],
+      [0.82, 31.3, -3.18],
+      [-0.82, 31.3, -3.18],
+    ]),
+  );
+  return g;
+}
 function shuttleChute() {
   // 40-ft (12 m) ring-sail drag chute trailing behind the tail on a long riser
   const g = new THREE.Group();
@@ -207,144 +347,3 @@ function deployRig(flags, B) {
   g.userData.update(T.gr - 3600);
   return g;
 }
-function shuttlePayload(kind, flags = {}, B = SH_BAY_BUILTIN) {
-  const g = new THREE.Group();
-  if (kind === "dfi") {
-    const p = box(3.6, 3.0, 1.6, mat("#c9c6bd", "metal"));
-    p.position.set(0, 8.4, -2.2);
-    g.add(p);
-    const t = cyl(0.5, 0.5, 1.6, mat("#d8d4c8", "paint"));
-    t.rotation.x = Math.PI / 2;
-    t.position.set(1.1, 12.2, -1.4);
-    g.add(t);
-  }
-  if (kind === "hst") {
-    const h = hubbleModel({ arrays: false });
-    h.position.set(0, 14.3, -0.05);
-    g.add(h);
-  }
-  if (kind === "mplm") {
-    const c = cyl(2.25, 2.25, 6.4, mat("#e7e5df", "paint"), 32);
-    c.position.set(0, 8.2, -0.05);
-    g.add(c);
-    const cap = cyl(2.25, 1.1, 0.9, mat("#d5d3cc", "paint"), 32);
-    cap.position.set(0, 14.6, -0.05);
-    g.add(cap);
-    const cap2 = cyl(1.1, 2.25, 0.6, mat("#d5d3cc", "paint"), 32);
-    cap2.position.set(0, 7.6, -0.05);
-    g.add(cap2);
-  }
-  if (flags.ods) {
-    // orbiter docking system: external airlock with the docking mechanism on top, at the front of the bay
-    const al = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.0, 1.0, 2.9, 24),
-      mat("#e9e7e1", "paint"),
-    );
-    al.rotation.x = Math.PI / 2;
-    al.position.set(0, 21.5, -0.65);
-    g.add(al);
-    const ring = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.85, 0.85, 0.8, 24),
-      mat("#a6abb1", "metal"),
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.set(0, 21.5, 1.2);
-    g.add(ring);
-    const tr = new THREE.Mesh(
-      new THREE.BoxGeometry(4.6, 2.4, 0.2),
-      mat("#c4c8cc", "metal"),
-    );
-    tr.position.set(0, 21.5, 0.75);
-    g.add(tr);
-  }
-  if (flags.obss) {
-    const b = cyl(0.2, 0.2, 15.2, mat("#d8d6cf", "paint"), 10);
-    b.position.set(B.wall - 0.22, 6.9, B.hz + 0.25);
-    g.add(b);
-  } // the boom on the starboard sill
-  return g;
-}
-// Each flight's orbiter in its own markings. The scan is Discovery as she was retired, in the markings of 1998 on; for the
-// orbiters of the app's flights tools/livery repaints its colour map as they flew them: Columbia in 1981 (the name on the
-// payload bay doors, "USA" on the right wing, a flag on the left, the black chines), Discovery in 1990 (the NASA logotype
-// on the wing and the doors, "USA" and a flag on the left wing, no insignia), Atlantis in 2011 (the scan's scheme, her name).
-const ORBITER_LIVERY = {
-  "OV-102": "columbia-1981",
-  "OV-103": "discovery-1990",
-  "OV-104": "atlantis-2011",
-};
-const LIVERIES = {};
-let SCAN_MAT = null; // (the scan's own material, which a livery replaces)
-function orbiterLivery(id) {
-  // a promise of the scan's material with this orbiter's colour map (null: keep the scan's own)
-  const key = ORBITER_LIVERY[id];
-  if (!key) return Promise.resolve(null);
-  if (!LIVERIES[key])
-    LIVERIES[key] = detailFile("orbiter").then(
-      (P) =>
-        new Promise((ok) => {
-          let base = null;
-          if (P && P.body)
-            P.body.traverse((o) => {
-              if (
-                !base &&
-                o.isMesh &&
-                o.material &&
-                o.material.map &&
-                o.material.name === "default"
-              )
-                base = o.material;
-            });
-          if (!base) return ok(null);
-          SCAN_MAT = base;
-          const done = (t) => {
-            const b = base.map;
-            t.flipY = false;
-            t.colorSpace = b.colorSpace;
-            t.wrapS = b.wrapS;
-            t.wrapT = b.wrapT;
-            t.magFilter = b.magFilter;
-            t.minFilter = b.minFilter;
-            t.anisotropy = b.anisotropy;
-            t.needsUpdate = true;
-            const m = base.clone();
-            m.map = t;
-            m.userData.livery = key;
-            ok(m);
-          };
-          const file = ASSET("orbiter-" + key + ".webp"),
-            fail = () => {
-              console.warn(
-                `Livery ${key} could not be loaded; the orbiter keeps the scan's markings.`,
-              );
-              ok(null);
-            };
-          // as the glTF loader reads the scan's own maps: decoded off the main thread where the browser can, not flipped
-          const safari = /^((?!chrome|android).)*safari/i.test(
-            navigator.userAgent,
-          );
-          if (typeof createImageBitmap === "function" && !safari)
-            new THREE.ImageBitmapLoader()
-              .setOptions({ premultiplyAlpha: "none" })
-              .load(
-                file,
-                (bmp) => done(new THREE.Texture(bmp)),
-                undefined,
-                fail,
-              );
-          else new THREE.TextureLoader().load(file, done, undefined, fail);
-        }),
-    );
-  return LIVERIES[key];
-}
-// the scan's parts in a model take the livery's material (when it has arrived)
-function wearLivery(g, id) {
-  orbiterLivery(id).then((m) => {
-    if (m)
-      g.traverse((o) => {
-        if (o.isMesh && o.material === SCAN_MAT) o.material = m;
-      });
-  });
-}
-// The orbiter: the scan's body, doors (swung open 175.5° in orbit) and landing gear, with the payload bay's lining, the robot
-// arm and the payloads; the built-in model until the scan arrives (or if it cannot be loaded).

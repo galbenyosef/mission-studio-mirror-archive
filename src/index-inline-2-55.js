@@ -1,342 +1,451 @@
 // index-inline-2 55 — math
-// Lines 15498-15837 of readable/index-inline-2.pretty.js (statement-aligned).
-function padWenchang(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    deck = 9.0,
-    stand = deck + 1.0 - LAUNCHERS.lm5.stages[1].eng.len;
-  k.box(M.concrete, 0, 0, 0, 80, 0.3, 80);
-  k.box(M.soot, 0, 0.3, 0, 10, 0.05, 70);
-  k.box(M.greyL, 0, 1.5, 0, 26, deck - 1.5, 22);
-  for (const e of [-10, 10]) k.box(M.greyD, e, 0, 0, 4, 1.5, 20); // the platform on its bogies
-  for (const e of [-10, 10]) {
-    k.box(M.steelD, e, 0, -900, 0.5, 0.3, 1800);
+// Lines 15485-15933 of readable/index-inline-2.pretty.js (statement-aligned).
+function terrainBuild(id, T, md) {
+  const S = TERRAIN_SITES[id],
+    b = R.bodies.earth,
+    N = T.n,
+    L = T.km * 1000,
+    cell = L / (N - 1);
+  const C = meshDir(S.lat, S.lon),
+    { E, N: Nn } = meshEN(S.lat, S.lon),
+    Rb = b.R * 1000;
+  const elev = b64(T.elev.data, Uint16Array),
+    cover = T.cover ? b64(T.cover.data, Uint8Array) : null;
+  // the level the sphere's cap sits at here (a runway's elevation lifts it, app/40_missionview.js) and the flat spots:
+  // the pad and the runway, each at its own level, blended into the relief round them
+  const capE =
+    (md.cfg.runway &&
+    RUNWAYS[md.cfg.runway] &&
+    terrainSiteFor(RUNWAYS[md.cfg.runway].lat, RUNWAYS[md.cfg.runway].lon) ===
+      id
+      ? RUNWAYS[md.cfg.runway].elev
+      : 0) * 1000;
+  const toLocal = (lat, lon) => [
+    (lon - S.lon) * 111320 * Math.cos(S.lat * DEG),
+    (lat - S.lat) * 110574,
+  ];
+  const flats = []; // { x, y, r0, r1, level } discs, and strips { x0, y0, x1, y1, w, level }
+  const site = LAUNCH_SITES[md.cfg.site];
+  if (terrainSiteFor(site.lat, site.lon) === id) {
+    const [x, y] = toLocal(site.lat, site.lon);
+    flats.push({ x, y, r0: 170, r1: 650, level: 0.2 });
   }
-  // the fixed service tower, west of the rocket, its platforms swung open
-  const fe = -17;
-  padLattice(k, M.greyL, fe, 0, 10, 0, 91.7, {
-    step: 7.6,
-    core: 5,
-    coreMat: M.white,
-    floorEvery: 1,
-  });
-  for (const y of [28, 46, 64])
-    for (const s of [-1, 1]) {
-      const geo = new THREE.BoxGeometry(8, 2.2, 3);
-      geo.translate(4, 1.1, 0);
-      geo.rotateY(s * 1.2);
-      geo.translate(-(fe + 5), y, s * 5);
-      k.geo(M.white, geo);
-    }
-  k.box(M.white, fe, 91.7, 0, 10.5, 2.5, 10.5);
-  const T = [
-    [-70, 70],
-    [70, 70],
-    [70, -70],
-    [-70, -70],
-  ].map(([e, n]) => padLightningTower(k, e, n, 92, 28, 3.0));
-  k.box(M.white, -1400, 0, 2400, 60, 99.4, 45); // the assembly building, 2.8 km up the rails
-  k.build(g);
-  padGround(g, { sea: 135, shore: 600, r: 3000 });
-  for (let i = 0; i < 4; i++) padWire(g, T[i], T[(i + 1) % 4], 12);
-  const glow = padGlow(),
-    lit = new THREE.Mesh(new THREE.PlaneGeometry(10, 40), glow);
-  lit.rotation.x = -Math.PI / 2;
-  lit.position.y = 0.4;
-  g.add(lit);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: deck,
-    foot: 7,
-    trenchD: 40,
-    block: [
-      padBlock(fe, 0, 5, 5),
-      ...T.map((p) => padBlock(-p.x, p.z, 1.5, 5)),
-    ],
-  };
-}
-// ---------------- Starship at Starbase, Texas ----------------
-// The orbital launch mount: a ring-shaped table on six legs, its top 20 m up, with twenty clamps for the booster; the water-
-// cooled steel plate under it; the launch and catch tower 28 m west (143 m, its chopsticks and the ship's quick-disconnect
-// arm toward the mount); the tank farm's white tanks to the west; the beach 700 m east.
-function padStarbase(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    top = 20,
-    stand = top - LAUNCHERS.starship.stages[0].eng.len;
-  k.box(M.concrete, 0, 0, 0, 120, 0.3, 120);
-  k.box(M.steelD, 0, 0.3, 0, 22, 0.8, 22); // the pad and the steel plate
-  for (let i = 0; i < 6; i++) {
-    const a = (i * TAU) / 6 + Math.PI / 6;
-    k.cyl(
-      M.greyD,
-      Math.cos(a) * 9.5,
-      0,
-      Math.sin(a) * 9.5,
-      1.3,
-      1.3,
-      top - 2.5,
-      16,
-    );
+  const rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
+  if (rw && terrainSiteFor(rw.lat, rw.lon) === id) {
+    const [x0, y0] = toLocal(rw.lat, rw.lon),
+      hd = rw.hdg * DEG,
+      l = rw.len * 1000;
+    flats.push({
+      x0,
+      y0,
+      x1: x0 + Math.sin(hd) * l,
+      y1: y0 + Math.cos(hd) * l,
+      w: rw.wid * 500 + 40,
+      w1: rw.wid * 500 + 400,
+      level: capE + 0.2,
+    });
   }
-  {
-    const ring = new THREE.RingGeometry(5.6, 10.5, 36, 1);
-    ring.rotateX(-Math.PI / 2);
-    const tbl = new THREE.CylinderGeometry(10.5, 10.5, 2.5, 36, 1, true);
-    tbl.translate(0, top - 1.25, 0);
-    k.geo(M.greyD, tbl);
-    const inn = new THREE.CylinderGeometry(5.6, 5.6, 2.5, 36, 1, true);
-    inn.translate(0, top - 1.25, 0);
-    k.geo(M.greyD, inn);
-    ring.translate(0, top, 0);
-    k.geo(M.greyD, ring);
-    const ring2 = ring.clone();
-    ring2.rotateX(Math.PI);
-    ring2.translate(0, 2 * top - 2.5, 0);
-    k.geo(M.greyD, ring2);
-  }
-  for (let i = 0; i < 20; i++) {
-    const a = (i * TAU) / 20;
-    k.box(
-      M.steelD,
-      Math.cos(a) * 5.0,
-      top,
-      Math.sin(a) * 5.0,
-      0.8,
-      1.4,
-      1.2,
-      -a,
-    );
-  }
-  padStarshipTower(k, -28, -3, 0);
-  for (let r = 0; r < 3; r++)
-    for (let i = 0; i < 6; i++) {
-      const geo = new THREE.CylinderGeometry(3.2, 3.2, 26, 20);
-      geo.rotateX(Math.PI / 2);
-      geo.translate(-(-150 - i * 9), 3.6, -60 + r * 34);
-      k.geo(M.white, geo);
-    } // horizontal tanks
-  k.build(g);
-  padGround(g, {
-    sea: 90,
-    shore: 700,
-    roads: [[-400, -80, 400, -80, 12]],
-    roadMat: M.asphalt,
-  });
-  const glow = padGlow(),
-    lit = new THREE.Mesh(new THREE.CircleGeometry(10, 32), glow);
-  lit.rotation.x = -Math.PI / 2;
-  lit.position.y = 1.2;
-  g.add(lit);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: top,
-    foot: 11,
-    trenchD: 25,
-    block: [padBlock(-28, -3, 6, 9)],
-  };
-}
-// which pad a mission stands on
-function padModel(md) {
-  const site = md.cfg.site,
-    lv = md.cfg.launcher;
-  if ((site === "KSC39A" || site === "KSC39B") && lv === "saturnV")
-    return padApollo(md);
-  if ((site === "KSC39A" || site === "KSC39B") && lv === "shuttle")
-    return padShuttle(md);
-  if (site === "KSC39B" && lv === "sls1") return padSLS(md);
-  if (site === "KSC39A" && lv === "falconHeavy") return padFH(md);
-  if (site === "CCSFS41") return padSLC41(md);
-  if (site === "CCSFS12") return padLC12(md);
-  if (site === "WENCHANG") return padWenchang(md);
-  if (site === "STARBASE") return padStarbase(md);
-  return null;
-}
-
-// ==== 47_exhaust.js
-// ============================================================================
-// Exhaust in the air after liftoff: the trail a launch leaves through the atmosphere. Solid boosters lay a dense white
-// column of aluminium-oxide smoke, kerosene engines a thinner grey one, hydrogen and methane engines little but a contrail
-// where their water freezes in the cold upper troposphere. The trail spreads, fades over half an hour and drifts on the
-// winds: kinked by the shear around the jet stream and, higher up, twisted into corkscrews by the tides and gravity waves of
-// the upper atmosphere. Above 60 km the exhaust no longer mixes into the air: it expands into a vast thin cloud that freezes
-// into ice.
-// Sunlight reaches each part of it through the air between it and the Sun: reddened through the long path at dawn and dusk,
-// cut off in Earth's shadow. After sunset the high exhaust is still in sunlight while the ground is dark, and glows against
-// the night sky as a spreading, luminous cloud (the "twilight phenomenon"). Near the vehicle the flame lights the smoke.
-// The trail is a ribbon along the path the engines took (where they were at each moment, carried round by the turning Earth
-// and the wind since), turned to face the camera and shaded as a round column of smoke: thick through the middle, thin at the
-// edges, billowing. Where a ribbon would show its edge (high up, where the trail spreads wider than it is long, and seen
-// end-on or from close by) round puffs facing the camera carry the smoke instead.
-// ============================================================================
-const EXH = { n: 0, mesh: null, puffs: null, tex: null, off: false };
-// what each propellant leaves in the air: optical thickness per kg burnt per metre of path (relative), extra for water
-// freezing out where the air is cold, how long the trail lasts (s), its colour
-const EXH_PROP = {
-  solid: { k: 1.0, ice: 0.02, life: 1500, col: [0.93, 0.92, 0.9] }, // aluminium oxide smoke: the dense column of solid boosters
-  kerolox: { k: 0.3, ice: 0.03, life: 700, col: [0.8, 0.78, 0.75] }, // soot and steam
-  hydrolox: { k: 0.05, ice: 0.05, life: 420, col: [0.96, 0.97, 0.98] }, // water only: a contrail where it freezes
-  methalox: { k: 0.08, ice: 0.05, life: 480, col: [0.95, 0.95, 0.96] },
-  hypergolic: { k: 0.28, ice: 0.03, life: 600, col: [0.88, 0.78, 0.64] }, // nitrogen dioxide tints it orange-brown
-};
-EXH_PROP.udmh = EXH_PROP.hypergolic;
-EXH_PROP.mmh = EXH_PROP.hypergolic;
-const EXH_C = 100; // optical depth per (kg of exhaust per m² of trail), scaled by the propellant's k
-const EXH_H = 8.5; // km: scale height of the air for the light's path
-const EXH_EXT = [0.042, 0.085, 0.17]; // vertical optical depth of the air down to sea level, red, green, blue (scattering and haze)
-// The exhaust's spread at emission (m) for a vehicle w across at the base: the plume widens as the air thins (an under-
-// expanded jet), up to 20 km
-const exhW0 = (w, h) =>
-  Math.min(w * Math.pow(Math.exp(Math.max(h, 0) / 7.2), 0.4), 20000);
-// how fast the exhaust expands into the near-vacuum above 60 km (m/s)
-const exhVx = (h) => 600 * Math.pow(smoothstep((h - 60) / 90), 1.3);
-// water freezing out of the exhaust: in the cold upper troposphere, and into the ice clouds of the mesosphere and above
-const exhIce = (h) =>
-  3 * Math.exp(-Math.pow((h - 11) / 3.5, 2)) + 40 * smoothstep((h - 62) / 40);
-// A wind profile for the launch (m/s toward east and north at height h, km), drawn from the date and site: a surface wind
-// veering into the westerlies, the jet stream near 11 km, stratospheric winds turning with height, and gravity waves whose
-// winds grow as the air thins and turn with height.
-function exhWind(seed) {
-  const rnd = mulberry32(seed);
-  const jetDir = (rnd() * 2 - 1) * 0.7,
-    jet = 15 + 25 * rnd(),
-    jetH = 10 + 3 * rnd(),
-    sfc = 3 + 6 * rnd(),
-    sfcDir = rnd() * TAU,
-    str = 5 + 15 * rnd(),
-    strDir = rnd() * TAU;
-  const waves = [3.6, 5.9, 9.4, 14.5, 22].map((l) => ({
-    lam: l * (0.8 + 0.4 * rnd()),
-    ph: rnd() * TAU,
-    a: (0.5 + 0.5 * rnd()) * Math.sqrt(l / 9),
-    s: rnd() < 0.5 ? 1 : -1,
-  })); // vertical wavelengths (km): the short ones weaker
-  return (h) => {
-    const fs = Math.exp(-h / 1.5),
-      fj =
-        Math.exp(-Math.pow((h - jetH) / 4.5, 2)) +
-        0.2 * smoothstep(h / 6) * (1 - smoothstep((h - 20) / 10)),
-      fu = smoothstep((h - 18) / 12);
-    let e =
-      sfc * fs * Math.cos(sfcDir) +
-      jet * fj * Math.cos(jetDir) +
-      str * fu * Math.cos(strDir + h / 25);
-    let n =
-      sfc * fs * Math.sin(sfcDir) +
-      jet * fj * Math.sin(jetDir) +
-      str * fu * Math.sin(strDir + h / 25);
-    const A = (2.5 + 55 * smoothstep((h - 50) / 40)) * 0.45; // m/s per wave
-    for (const w of waves) {
-      const ph = (w.s * TAU * h) / w.lam + w.ph;
-      e += A * w.a * Math.cos(ph);
-      n += A * w.a * Math.sin(ph);
-    }
-    return [e, n];
-  };
-}
-// the engines firing at te: [[propellant, kg/s] …], from the launch configuration (the core stage's throttle, the boosters'
-// thrust curve) or the upper stage's thrust
-function exhFlows(c, L, te, t0) {
-  const s = c.o.stateAt(te);
-  if (!s || !(s.T > 0)) return { s, flows: [] };
-  const cf = cfgAt(c, te),
-    out = [];
-  if (cf && cf.key === "launch") {
-    const st = L.stages.find((x) => x.id === (s.extra && s.extra.stage));
-    if (st) out.push([st.prop, stageFlow(st) * (s.extra.throttle ?? 1)]);
-    const b = L.stages[0].parallel ? L.stages[0] : null;
-    if (b && cf.boosters) {
-      const f = b.curve ? Math.max(curveAt(b.curve, te - t0), 0) : 1;
-      if (f > 0.02) out.push([b.prop, stageFlow(b) * f]);
-    }
-  } else if (cf && cf.key === "stack") {
-    const st = L.stages[cf.stage];
-    if (st) out.push([st.prop, s.T / (st.ispVac * G0)]);
-  }
-  return { s, flows: out };
-}
-function initExhaust() {
-  // tileable billows: value noise in a few octaves
-  const N = 256,
-    rnd = mulberry32(11),
-    v = new Float32Array(N * N);
-  for (const [S, amp] of [
-    [4, 0.4],
-    [8, 0.27],
-    [16, 0.17],
-    [32, 0.1],
-    [64, 0.06],
-  ]) {
-    const L = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) L[i] = rnd();
-    for (let y = 0; y < N; y++)
-      for (let x = 0; x < N; x++) {
-        const fx = (x / N) * S,
-          fy = (y / N) * S,
-          x0 = Math.floor(fx),
-          y0 = Math.floor(fy),
-          tx = fx - x0,
-          ty = fy - y0,
-          sx = tx * tx * (3 - 2 * tx),
-          sy = ty * ty * (3 - 2 * ty);
-        const a = L[(y0 % S) * S + (x0 % S)],
-          b = L[(y0 % S) * S + ((x0 + 1) % S)],
-          c = L[((y0 + 1) % S) * S + (x0 % S)],
-          d = L[((y0 + 1) % S) * S + ((x0 + 1) % S)];
-        v[y * N + x] +=
-          amp *
-          ((a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy);
+  const hAt = (x, y) => {
+    // height above the sphere at a local point, m: the relief (never below the cap) with the flats
+    const fi = (x / L + 0.5) * (N - 1),
+      fj = (y / L + 0.5) * (N - 1),
+      i0 = clamp(Math.floor(fi), 0, N - 2),
+      j0 = clamp(Math.floor(fj), 0, N - 2),
+      tx = clamp(fi - i0, 0, 1),
+      ty = clamp(fj - j0, 0, 1);
+    const z = (i, j) => T.elev.base + elev[j * N + i] / 10;
+    let h =
+      (z(i0, j0) * (1 - tx) + z(i0 + 1, j0) * tx) * (1 - ty) +
+      (z(i0, j0 + 1) * (1 - tx) + z(i0 + 1, j0 + 1) * tx) * ty;
+    h = Math.max(h - capE, 0) + 0.2;
+    for (const f of flats) {
+      let d;
+      if (f.r0 != null)
+        d =
+          Math.hypot(x - f.x, y - f.y) <= f.r0
+            ? 0
+            : (Math.hypot(x - f.x, y - f.y) - f.r0) / (f.r1 - f.r0);
+      else {
+        const dx = f.x1 - f.x0,
+          dy = f.y1 - f.y0,
+          ll = dx * dx + dy * dy,
+          t = clamp(((x - f.x0) * dx + (y - f.y0) * dy) / ll, 0, 1),
+          dd = Math.hypot(x - f.x0 - dx * t, y - f.y0 - dy * t);
+        d = dd <= f.w ? 0 : (dd - f.w) / (f.w1 - f.w);
       }
+      if (d < 1) h = (f.level - capE) * (1 - smoothstep(d)) + h * smoothstep(d);
+    }
+    return h;
+  };
+  const at = (x, y, h) =>
+    vscale(
+      vunit(vadd(vscale(C, Rb), vadd(vscale(E, x), vscale(Nn, y)))),
+      Rb + capE + h,
+    );
+  const Pc = at(0, 0, 0),
+    grp = new THREE.Group();
+  // the rim: the ground and the water fade out over the outer sixth, and the globe's own map shows through
+  const fadeAt = (x, y) =>
+    1 -
+    smoothstep((Math.max(Math.abs(x), Math.abs(y)) / (L / 2) - 0.84) / 0.15);
+  // --- the ground: the grid, coloured by land cover (a texture of the classes, so the colour runs smoothly between
+  // cells) with the fine scrub texture over it
+  {
+    const pos = new Float32Array(3 * N * N),
+      uv = new Float32Array(2 * N * N),
+      fade = new Float32Array(N * N),
+      idx = [];
+    // the classes' colours pulled toward the globe's own map colour here, so the square's ground is the same country as
+    // the land round it (the Mojave pale, Florida green), the classes giving the detail
+    const G = globeColorAt(S.lat, S.lon),
+      cc = {};
+    for (const k in TER_COVER) {
+      const c = new THREE.Color(TER_COVER[k][0]);
+      if (G) c.lerp(G, 0.35);
+      cc[k] = c.convertLinearToSRGB();
+    }
+    const water = new THREE.Color(TER_WATER.sea).convertLinearToSRGB();
+    const hash = (i, j) => {
+      const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const tex = new Uint8Array(3 * N * N);
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const x = (i / (N - 1) - 0.5) * L,
+          y = (j / (N - 1) - 0.5) * L,
+          h = hAt(x, y),
+          p = at(x, y, h),
+          o = j * N + i;
+        pos[3 * o] = p[0] - Pc[0];
+        pos[3 * o + 1] = p[1] - Pc[1];
+        pos[3 * o + 2] = p[2] - Pc[2];
+        uv[2 * o] = i / (N - 1);
+        uv[2 * o + 1] = j / (N - 1);
+        fade[o] = fadeAt(x, y);
+        const k = cover ? cover[o] : 0,
+          c = k === 11 ? water : cc[k] || cc[0],
+          v = 0.92 + 0.16 * hash(i, j);
+        tex[3 * o] = Math.min(255, c.r * 255 * v);
+        tex[3 * o + 1] = Math.min(255, c.g * 255 * v);
+        tex[3 * o + 2] = Math.min(255, c.b * 255 * v); // (the colours are kept in sRGB below)
+      }
+    for (let pass = 0; pass < 2; pass++) {
+      // the cells' colours blurred a little, so the classes' edges do not show as a mosaic
+      const src = tex.slice();
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++)
+          for (let ch = 0; ch < 3; ch++) {
+            let a = 0,
+              n = 0;
+            for (let dj = -1; dj <= 1; dj++)
+              for (let di = -1; di <= 1; di++) {
+                const ii = i + di,
+                  jj = j + dj;
+                if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+                a += src[3 * (jj * N + ii) + ch];
+                n++;
+              }
+            tex[3 * (j * N + i) + ch] = a / n;
+          }
+    }
+    for (let j = 0; j < N - 1; j++)
+      for (let i = 0; i < N - 1; i++) {
+        const a = j * N + i,
+          bq = a + 1,
+          c = a + N,
+          d = c + 1;
+        idx.push(a, bq, c, bq, d, c);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    g.setAttribute("aFade", new THREE.BufferAttribute(fade, 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const mesh = new THREE.Mesh(
+      g,
+      terrainMat({ map: terrainClassTexture(tex, N), rep: L / 80 }),
+    );
+    mesh.renderOrder = 1;
+    grp.add(mesh);
   }
-  const cv = document.createElement("canvas");
-  cv.width = cv.height = N;
-  const g = cv.getContext("2d"),
-    img = g.createImageData(N, N);
-  for (let i = 0; i < N * N; i++) {
-    const q = clamp(Math.round(255 * smoothstep((v[i] - 0.18) / 0.64)), 0, 255);
-    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = q;
-    img.data[4 * i + 3] = 255;
+  // --- water: each polygon flat at its level (the sea at the datum, a lake at the ground's lowest point along its
+  // shore), cut into 1-km tiles so its triangles stay short and follow the sphere
+  {
+    const byKind = {},
+      TILE = 1000;
+    const addShape = (outer, holes, level, kind) => {
+      const sh = new THREE.Shape(
+        outer.map(([x, y]) => new THREE.Vector2(x, y)),
+      );
+      for (const hh of holes)
+        sh.holes.push(
+          new THREE.Path(hh.map(([x, y]) => new THREE.Vector2(x, y))),
+        );
+      let g;
+      try {
+        g = new THREE.ShapeGeometry(sh, 1);
+      } catch (e) {
+        return;
+      }
+      const p = g.attributes.position,
+        arr = new Float32Array(p.count * 3),
+        fd = new Float32Array(p.count);
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i),
+          y = p.getY(i),
+          q = at(x, y, level);
+        arr[3 * i] = q[0] - Pc[0];
+        arr[3 * i + 1] = q[1] - Pc[1];
+        arr[3 * i + 2] = q[2] - Pc[2];
+        fd[i] = fadeAt(x, y);
+      }
+      g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      g.setAttribute("aFade", new THREE.BufferAttribute(fd, 1));
+      g.deleteAttribute("uv");
+      g.deleteAttribute("normal");
+      (byKind[kind] || (byKind[kind] = [])).push(g);
+    };
+    const inRing = (p, o) => {
+      let inside = false;
+      for (let i = 0, j = o.length - 1; i < o.length; j = i++) {
+        const a = o[i],
+          c = o[j];
+        if (
+          a[1] > p[1] !== c[1] > p[1] &&
+          p[0] < ((c[0] - a[0]) * (p[1] - a[1])) / (c[1] - a[1]) + a[0]
+        )
+          inside = !inside;
+      }
+      return inside;
+    };
+    const clipTo = (ring, x0, y0, x1, y1) => {
+      // Sutherland–Hodgman against a tile
+      let P = ring;
+      for (const [ax, lim, keepBelow] of [
+        [0, x1, true],
+        [0, x0, false],
+        [1, y1, true],
+        [1, y0, false],
+      ]) {
+        const inside = (p) => (keepBelow ? p[ax] <= lim : p[ax] >= lim),
+          Q = [];
+        for (let i = 0; i < P.length; i++) {
+          const a = P[i],
+            b = P[(i + 1) % P.length],
+            ia = inside(a),
+            ib = inside(b);
+          const cr = () => {
+            const t = (lim - a[ax]) / (b[ax] - a[ax]);
+            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+          };
+          if (ia) {
+            Q.push(a);
+            if (!ib) Q.push(cr());
+          } else if (ib) Q.push(cr());
+        }
+        P = Q;
+        if (P.length < 3) return [];
+      }
+      return P;
+    };
+    const area2 = (r) => {
+      let a = 0;
+      for (let i = 0; i < r.length; i++) {
+        const [x0, y0] = r[i],
+          [x1, y1] = r[(i + 1) % r.length];
+        a += x0 * y1 - x1 * y0;
+      }
+      return a;
+    };
+    for (const w of T.polys || []) {
+      let level;
+      if (w.kind === "sea" || w.kind === "bay" || w.kind === "estuary")
+        level = 0.45 - capE; // the datum
+      else {
+        level = Infinity;
+        for (const r of w.rings)
+          for (
+            let i = 0;
+            i < r.length;
+            i += Math.max(1, Math.floor(r.length / 40))
+          )
+            level = Math.min(level, hAt(r[i][0], r[i][1]));
+        level += 0.3;
+      }
+      level = Math.max(level, 0.3);
+      // esri rings: clockwise outers (negative signed area here, y up), counter-clockwise holes; each outer takes the holes inside it
+      const outers = [],
+        holes = [];
+      for (const r of w.rings) (area2(r) < 0 ? outers : holes).push(r);
+      if (!outers.length && holes.length)
+        outers.push(holes.shift().slice().reverse());
+      for (const o of outers) {
+        const myHoles = holes.filter((hh) => inRing(hh[0], o));
+        let bx0 = Infinity,
+          by0 = Infinity,
+          bx1 = -Infinity,
+          by1 = -Infinity;
+        for (const [x, y] of o) {
+          if (x < bx0) bx0 = x;
+          if (x > bx1) bx1 = x;
+          if (y < by0) by0 = y;
+          if (y > by1) by1 = y;
+        }
+        for (let ty = Math.floor(by0 / TILE) * TILE; ty < by1; ty += TILE)
+          for (let tx = Math.floor(bx0 / TILE) * TILE; tx < bx1; tx += TILE) {
+            const co = clipTo(o, tx, ty, tx + TILE, ty + TILE);
+            if (co.length < 3) continue;
+            const ch = myHoles
+              .map((hh) => clipTo(hh, tx, ty, tx + TILE, ty + TILE))
+              .filter((r) => r.length >= 3);
+            // a hole that covers the whole tile leaves nothing; one that covers the clipped outer exactly, the same
+            if (ch.some((r) => Math.abs(area2(r)) >= Math.abs(area2(co)) - 1))
+              continue;
+            addShape(co, ch, level, w.kind);
+          }
+      }
+    }
+    for (const [kind, gs] of Object.entries(byKind)) {
+      const g = mergeGeos(gs),
+        playa = kind === "playa";
+      const mesh = new THREE.Mesh(
+        g,
+        terrainMat({
+          color: TER_WATER[kind] || TER_WATER.water,
+          ocean: playa ? 0 : 1,
+          offset: -1,
+        }),
+      );
+      mesh.renderOrder = 2;
+      grp.add(mesh);
+    }
   }
-  g.putImageData(img, 0, 0);
-  EXH.tex = new THREE.CanvasTexture(cv);
-  EXH.tex.wrapS = EXH.tex.wrapT = THREE.RepeatWrapping;
-  EXH.tex.generateMipmaps = true;
-  EXH.tex.minFilter = THREE.LinearMipmapLinearFilter;
+  // --- streams and roads: strips laid on the ground
+  const strips = (lines, w, lift) => {
+    const pos = [],
+      idx = [],
+      fd = [];
+    let n = 0;
+    for (const line of lines)
+      for (let i = 0; i < line.length - 1; i++) {
+        const [x0, y0] = line[i],
+          [x1, y1] = line[i + 1],
+          dx = x1 - x0,
+          dy = y1 - y0,
+          ll = Math.hypot(dx, dy) || 1,
+          nx = ((-dy / ll) * w) / 2,
+          ny = ((dx / ll) * w) / 2;
+        const seg = Math.max(1, Math.ceil(ll / 150)); // long segments follow the relief in pieces
+        for (let s = 0; s <= seg; s++) {
+          const x = x0 + (dx * s) / seg,
+            y = y0 + (dy * s) / seg,
+            h = hAt(x, y) + lift;
+          for (const k of [-1, 1]) {
+            const p = at(x + nx * k, y + ny * k, h);
+            pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+            fd.push(fadeAt(x, y));
+          }
+          if (s) {
+            const a = n - 2;
+            idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+          }
+          n += 2;
+        }
+      }
+    if (!n) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aFade", new THREE.Float32BufferAttribute(fd, 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+  const addStrips = (g, color, rough, order) => {
+    if (!g) return;
+    const mesh = new THREE.Mesh(g, terrainMat({ color, offset: -2 }));
+    mesh.renderOrder = order;
+    grp.add(mesh);
+  };
+  addStrips(
+    strips(
+      (T.streams || [])
+        .filter((s) => s.kind === "stream")
+        .flatMap((s) => s.paths),
+      4,
+      0.08,
+    ),
+    TER_WATER.river,
+    0.3,
+    2,
+  );
+  addStrips(
+    strips(
+      (T.streams || [])
+        .filter((s) => s.kind === "canal")
+        .flatMap((s) => s.paths),
+      5,
+      0.08,
+    ),
+    TER_WATER.river,
+    0.3,
+    2,
+  );
+  for (const cls of ["local", "secondary", "primary"]) {
+    const [w, c] = TER_ROAD[cls];
+    addStrips(
+      strips(
+        (T.roads || []).filter((r) => r.cls === cls).flatMap((r) => r.paths),
+        w,
+        0.25,
+      ),
+      c,
+      0.9,
+      3,
+    );
+  }
+  // --- place it: metres → the mesh frame (unit sphere scaled by R)
+  const k = 1 / Rb;
+  grp.position.set(Pc[0] * k, Pc[1] * k, Pc[2] * k);
+  grp.scale.setScalar(k);
+  grp.userData = { id, hAt, toLocal, at, Pc, capE, L };
+  b.mesh.add(grp);
+  TER.groups.push(grp);
+  if (MV.pad)
+    MV.pad.traverse((n) => {
+      if (n.userData.padGround) n.visible = false;
+    }); // the pad's scrub, beach and roads give way
+  if (typeof buildBuildings === "function") buildBuildings(id, grp, T, md);
+  // every mesh: the sphere's up at each vertex (for the lighting) and the fade toward the rim, from the positions
+  grp.traverse((n) => {
+    if (!n.isMesh) return;
+    const g = n.geometry,
+      p = g.attributes.position,
+      up = new Float32Array(p.count * 3),
+      fd = new Float32Array(p.count);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) + Pc[0],
+        y = p.getY(i) + Pc[1],
+        z = p.getZ(i) + Pc[2],
+        r = Math.hypot(x, y, z);
+      up[3 * i] = x / r;
+      up[3 * i + 1] = y / r;
+      up[3 * i + 2] = z / r;
+      const dx = p.getX(i),
+        dy = p.getY(i),
+        dz = p.getZ(i);
+      fd[i] = fadeAt(
+        dx * E[0] + dy * E[1] + dz * E[2],
+        dx * Nn[0] + dy * Nn[1] + dz * Nn[2],
+      );
+    }
+    g.setAttribute("aUp", new THREE.BufferAttribute(up, 3));
+    g.setAttribute("aFade", new THREE.BufferAttribute(fd, 1));
+  });
 }
-const GLSL_EXH_COMMON = `
-uniform sampler2D tNoise; uniform vec3 uSunDir; uniform vec3 uFogCol; uniform float uExpo;
-varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vWP; varying float vFade;
-// Smoke of optical depth tau seen at a point where its surface (a column's or a puff's) faces N. Dense smoke scatters like a
-// matt surface (light diffusing through it reaches its far side too); thin smoke glows looking toward the Sun (forward
-// scattering, Henyey–Greenstein g = 0.6). Premultiplied: a thin veil in sunlight against a dark sky (exposed for the dark:
-// uExpo) can outshine its own opacity many times over, so the light is not capped by it.
-vec4 smoke(float tau, float edge, vec3 N, float n) {
-  // out of the flame the smoke billows into view, the bulging parts (n high) first (vFade: 0 at the flame, 1 clear of it)
-  float fd = clamp((vFade - 0.45 * (1.0 - n)) / 0.55, 0.0, 1.0);
-  float a = (1.0 - exp(-tau)) * edge * fd * fd;
-  vec3 V = normalize(cameraPosition - vWP);
-  float wrap = clamp((dot(N, uSunDir) + 0.8) / 1.8, 0.0, 1.0);
-  float ct = dot(-V, uSunDir), hg = 0.64 / pow(1.36 - 1.2 * ct, 1.5);
-  vec3 sunL = vSun * mix(wrap, 0.12 + 0.3 * hg, exp(-tau)) * uExpo, ambL = vAmb * (0.8 + 0.4 * n);
-  float af = a * (1.0 - 0.7 * vFog);
-  vec3 col = mix(sunL + ambL, uFogCol, vFog) * af;
-  float mx = max(max(col.r, col.g), col.b); if (mx > 1.0) col /= mx; // overexposed: keep the hue
-  return vec4(col, af);
-}
-float bil(vec2 p) { return texture2D(tNoise, p * vec2(0.37, 0.19) + vec2(0.0, 0.5)).r * 0.62 + texture2D(tNoise, p * vec2(1.21, 0.47) + vec2(0.31, 0.17)).r * 0.38; }`;
-const GLSL_EXH_V = `
-#include <common>
-#include <logdepthbuf_pars_vertex>
-attribute vec3 aUV; attribute float aTau; attribute vec3 aSun; attribute vec3 aAmb; attribute float aFog; attribute vec3 aSide; attribute float aFade;
-varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vSide; varying vec3 vWP; varying float vFade;
-void main(){ vUV = aUV; vTau = aTau; vSun = aSun; vAmb = aAmb; vFog = aFog; vSide = aSide; vFade = aFade;
-  vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp;
-#include <logdepthbuf_vertex>
-}`;
-// the ribbon: a round column seen from the side; vUV = (along the trail, across it −1.25 … 1.25, log2 of its spread)
+// The terrain's material: lit as the globe is (the Sun through the air and the sky's light from the atmosphere model,
+// app/15_atmos.js and app/20_scene.js) and seen through the same air, so the square is the same country as the globe
+// round it, whatever the hour. alb: a texture (the land-cover colours) or a colour or the vertex colours, with the scrub
+// texture over it at rep repeats across the square; ocean: the sea's glint and sky reflection; the fade toward the rim
+// in aFade. Positions are in the planet's mesh frame (the group draped on the sphere), aUp the sphere's normal.

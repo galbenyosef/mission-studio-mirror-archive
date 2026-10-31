@@ -12,7 +12,9 @@
  *
  * WHAT IT DOES
  *   1. copies the mirror's tree into a throwaway scratch directory OUTSIDE the
- *      mirror (no `.git`, so the copy has no remote);
+ *      mirror's build surface (a gitignored `.scratch/` at the repo root — the
+ *      workspace rule keeps artifact writes under D:/repos, never %TEMP%; the
+ *      copy carries no `.git`, so it has no remote);
  *   2. runs the mirror's own documented rebuild chain there — the SAME chain
  *      the README names, so the recorded rename layer is re-applied and the
  *      comparison is against what the mirror really ships;
@@ -87,29 +89,32 @@ function readBytes(abs) {
   }
 }
 
-// copy the tree, minus the things a rebuild never needs
+// copy the tree, minus the things a rebuild never needs. `.scratch` is the
+// throwaway area itself (copying it into its own subtree would recurse), and
+// `legacy/` is the rollback archive — neither is an input to the chain.
 function copyTree(from, to) {
-  fs.cpSync(from, to, {
-    recursive: true,
-    dereference: true,
-    filter: (src) => {
-      const r = path.relative(from, src);
-      if (!r) return true;
-      const top = r.split(path.sep)[0];
-      return top !== ".git" && top !== "node_modules";
-    },
-  });
+  // Copy top-level entries one by one: `fs.cpSync` refuses to copy a directory
+  // into a subdirectory of itself, and the scratch lives under the repo's
+  // gitignored `.scratch/`. `.scratch` (the scratch area), `legacy/` (the
+  // rollback archive), `.git` and `node_modules` are never inputs to the chain.
+  fs.mkdirSync(to, { recursive: true });
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    if ([".git", "node_modules", ".scratch", "legacy"].includes(e.name)) continue;
+    fs.cpSync(path.join(from, e.name), path.join(to, e.name), { recursive: true, dereference: true });
+  }
 }
 
 // ── the check ───────────────────────────────────────────────────────────
 export async function runDeriveCheck() {
-  const scratchRoot = process.env.DERIVE_CHECK_SCRATCH || os.tmpdir();
+  // Workspace rule: scratch lives inside D:/repos. `.scratch/` is gitignored
+  // (`.gitignore`), so nothing the check creates can reach a commit.
+  const scratchRoot = process.env.DERIVE_CHECK_SCRATCH || path.join(proj, ".scratch");
   fs.mkdirSync(scratchRoot, { recursive: true });
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "derive-check-"));
   const problems = [];
   let compared = 0;
   try {
-    console.log(`derive-check: scratch copy at ${scratch} (outside the mirror)`);
+    console.log(`derive-check: scratch copy at ${scratch} (gitignored .scratch, no .git)`);
     copyTree(proj, scratch);
 
     // ── the chain, run in the scratch ────────────────────────────────────

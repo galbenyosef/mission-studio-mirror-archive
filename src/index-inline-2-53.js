@@ -1,351 +1,340 @@
 // index-inline-2 53 — math
-// Lines 14844-15192 of readable/index-inline-2.pretty.js (statement-aligned).
-function padShuttle(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    b39 = md.cfg.site === "KSC39B",
-    h = b39 ? 15.0 : 12.8,
-    deck = h + 14.3;
-  const SRB = LAUNCHERS.shuttle.stages[0],
-    stand = deck + 1.5 - SRB.eng.len,
-    year = tToDate(md.M.t0).getUTCFullYear(),
-    glow = padGlow();
-  ksc39Hardstand(k, h, glow);
-  // the platform: solid but for its three openings (main engines: e ±5.2, n −13.7…−4.3; boosters: e ±3.35…9.45, n ±6.4)
-  const by = deck - 7.6,
-    n0 = -22,
-    n1 = 26.8,
-    H7 = 7.6;
-  const slab = (e0, e1, nA, nB) =>
-    k.box(M.grey, (e0 + e1) / 2, by, (nA + nB) / 2, e1 - e0, H7, nB - nA);
-  slab(-20.55, 20.55, n0, -13.7);
-  slab(-20.55, -5.2, -13.7, -6.4);
-  slab(5.2, 20.55, -13.7, -6.4);
-  slab(-20.55, -9.45, -6.4, 6.4);
-  slab(9.45, 20.55, -6.4, 6.4);
-  slab(-3.35, 3.35, -4.3, 6.4);
-  slab(-5.2, -3.35, -6.4, -4.3);
-  slab(3.35, 5.2, -6.4, -4.3);
-  slab(-20.55, 20.55, 6.4, n1);
-  for (const [e, n] of [
-    [-15, -16],
-    [15, -16],
-    [-15, 2],
-    [15, 2],
-    [-15, 21],
-    [15, 21],
-  ])
-    k.box(M.concreteD, e, h, n, 3.2, by - h, 3.2);
-  for (const sd of [-1, 1]) {
-    k.box(M.greyD, sd * 7.7, deck, -9.2, 4.6, 9.4, 2.7); // tail service masts
-    for (let i = 0; i < 4; i++) {
-      const a = (i * Math.PI) / 2 + Math.PI / 4;
-      k.cyl(
-        M.steelD,
-        sd * 6.4 + Math.cos(a) * 2.4,
-        deck,
-        Math.sin(a) * 2.4,
-        1.0,
-        0.45,
-        1.5,
-        10,
-      );
-    }
-  } // booster hold-down posts
-  for (let i = 0; i < 6; i++)
-    k.cyl(M.greyL, -12.5 + i * 5, deck, 22, 0.6, 0.45, 3.7, 10); // rainbirds
-  // the fixed service structure, west of the stack
-  const fe = -28,
-    top = h + 75.3;
-  padLattice(k, M.grey, fe, 0, 12.2, h, 75.3, {
-    step: 6.1,
-    core: 4,
-    coreMat: M.greyD,
-    floorEvery: 2,
-  });
-  if (year < 1994) {
-    k.box(M.grey, fe, top, 0, 12.6, 1.0, 12.6);
-    k.cyl(M.greyD, fe, top + 1, 0, 2, 2, 3, 12);
-    k.beam(
-      M.grey,
-      PV(fe - 8, top + 4.5, 0),
-      PV(fe + 20, top + 4.5, 0),
-      1.4,
-      1.8,
-    );
-  }
-  k.beam(M.grey, PV(fe, top, 0), PV(fe, top + 6, 0), 1.2);
-  k.cyl(M.fibre, fe, top + 6, 0, 0.5, 0.15, 24.4, 10); // the lightning mast
-  // the rotating service structure, parked: its hinge column by the fixed tower's southeast corner, the structure 17–49 m
-  // out from it on a bearing of 210°, 18–58 m up, its outer end on a column down to the wheels on the circular rail
-  const hE = -21,
-    hN = -10,
-    br = 210 * DEG,
-    ue = Math.sin(br),
-    un = Math.cos(br);
-  padLattice(k, M.greyL, hE, hN, 4, h, 58, { step: 6, floors: false });
-  {
-    const a0 = 17,
-      a1 = 48.8,
-      mid = (a0 + a1) / 2,
-      cE = hE + ue * mid,
-      cN = hN + un * mid,
-      y0 = h + 18;
-    padTrussBox(k, M.greyL, cE, cN, y0, 15.2, a1 - a0, 39.6, br, {
-      bay: 6.3,
-      step: 6.6,
-      beam: 0.55,
-    });
-    // the payload changeout room, clad, filling most of the frame; the frame's roof
-    const geo = new THREE.BoxGeometry(12.2, 27, a1 - a0 - 6);
-    geo.rotateY(-Math.atan2(-ue, un));
-    geo.translate(-cE, y0 + 4 + 13.5, cN);
-    k.geo(M.white, geo);
-    const roof = new THREE.BoxGeometry(15.2, 0.6, a1 - a0);
-    roof.rotateY(-Math.atan2(-ue, un));
-    roof.translate(-cE, y0 + 39.6, cN);
-    k.geo(M.greyL, roof);
-    k.beam(
-      M.greyL,
-      PV(hE, h + 50, hN),
-      PV(hE + ue * a0, h + 50, hN + un * a0),
-      2.5,
-    );
-    k.beam(
-      M.greyL,
-      PV(hE, h + 22, hN),
-      PV(hE + ue * a0, h + 22, hN + un * a0),
-      2.5,
-    );
-    k.box(M.greyD, hE + ue * (a1 - 2), h, hN + un * (a1 - 2), 4, 18, 4);
-    // its circular rail on the pad, from the stack (bearing 90°) round to where it is parked
-    for (let i = 0; i < 24; i++) {
-      const b1 = (90 + (120 * i) / 24) * DEG,
-        b2 = (90 + (120 * (i + 1)) / 24) * DEG;
-      for (const rr of [a1 - 3.2, a1 - 0.8])
-        k.beam(
-          M.steelD,
-          PV(hE + Math.sin(b1) * rr, h + 0.12, hN + Math.cos(b1) * rr),
-          PV(hE + Math.sin(b2) * rr, h + 0.12, hN + Math.cos(b2) * rr),
-          0.3,
-          0.2,
-        );
-    }
-  }
-  // water tower, propellant spheres, the hypergolic farms
-  padWaterTower(k, 130, 90, 88.4, 6.6, 9);
-  for (const [e, n] of KSC_SPHERES) padSphere(k, e, n, 10.5);
-  for (const e of [-230, 230])
-    for (let i = 0; i < 3; i++) k.cyl(M.white, e + i * 9, 0, -260, 3, 3, 8, 16);
-  k.build(g);
-  padGround(g, KSC_GROUND(h));
-  // arms on the fixed tower (hinged on its east face, reaching east): the orbiter access arm with its white room, the oxygen
-  // vent arm with its hood over the tank's nose; [height above the pad, reach, swing-away start and end (s from liftoff)]
-  const face = fe + 6.1,
-    etTop = stand + 9.26 + 46.9,
-    arms = [];
-  const mk = (y, nH, reach, t0, t1, sw, o) => {
-    const a = padArm(reach, 2.0, 2.3, M.grey, o),
-      piv = new THREE.Group();
-    piv.position.copy(PV(face, y, nH));
-    piv.add(a);
-    g.add(piv);
-    const tgt = PV(0, y, o.toN ?? 0),
-      b0 = Math.atan2(tgt.x - piv.position.x, tgt.z - piv.position.z) + Math.PI;
-    arms.push({ piv, b0, t0, t1, sw });
-    return piv;
-  };
-  mk(h + 44.8, -4.5, 19.8, -444, -414, -70 * DEG, {
-    room: [3.0, 3.0, 3.2],
-    roomMat: M.white,
-    toN: -8.5,
-  }); // to the crew hatch on the orbiter's left side
-  const gox = mk(etTop - 2.5, 0, Math.abs(face) - 2.2, -105, -80, 80 * DEG, {
-    toN: 0,
-  }); // to the tank's nose
-  const hood = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.9, 2.3, 2.8, 20),
-    M.white,
-  );
-  hood.position.set(0, 1.4, -(Math.abs(face) - 0.6));
-  gox.children[0].add(hood); // over the top of the nose cone
-  const h2 = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.2, 1, 8),
-    M.steelD,
-  );
-  g.add(h2);
-  const h2a = PV(face, h + 51, 0.5),
-    h2b = PV(-4.0, stand + 9.26 + 31.0, 0.5); // the hydrogen vent line to the tank's intertank
-  // lightning cable over the mast
-  const tip = PV(fe, top + 30.4, 0);
-  padWire(g, PV(fe, 2, 335), tip, 8);
-  padWire(g, tip, PV(fe, 2, -335), 8);
-  const animate = (t) => {
-    const tl = t - md.M.t0;
-    for (const A of arms)
-      A.piv.rotation.y =
-        A.b0 + A.sw * smoothstep(clamp((tl - A.t0) / (A.t1 - A.t0), 0, 1));
-    hood.position.y = 1.4 + 3.0 * smoothstep(clamp((tl + 150) / 25, 0, 1)); // the hood lifts off the vents before the arm swings back
-    const drop = smoothstep(clamp(tl / 2.5, 0, 1)); // at liftoff the vent line lets go and swings down against the tower
-    const b = h2b.clone().lerp(PV(face + 0.5, h + 40, 0.5), drop);
-    h2.position.copy(h2a).add(b).multiplyScalar(0.5);
-    h2.scale.y = h2a.distanceTo(b);
-    h2.quaternion.setFromUnitVectors(_padY, b.clone().sub(h2a).normalize());
-  };
-  animate(md.M.t0 - 3600);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: deck,
-    animate,
-    foot: 12,
-    trenchD: 95,
-    block: [
-      padBlock(fe, 0, 6.1, 8.4),
-      padBlock(hE + ue * 32.9, hN + un * 32.9, 16, 8.4),
-      ...KSC_SPHERES.map((p) => sphereBlock(...p)),
-    ],
-  };
+// Lines 14838-15175 of readable/index-inline-2.pretty.js (statement-aligned).
+function groundFrame(c, t) {
+  const eps = attEpisodes(c);
+  if (!eps.length) return null;
+  const e = eps.find((e) => t >= e.tA && t <= e.tB);
+  if (!e) return null;
+  const rB = c.dom === e.body ? c.rD : vsub(c.P, helio(e.body, t).r);
+  if (!rB) return null;
+  const lf = localFrame(e.body, rB, t);
+  let P;
+  if (e.kind === "launch") {
+    // across the launch plane, after the roll program (if any) from the pad azimuth
+    const hp = vsub(e.h, vscale(lf.up, vdot(e.h, lf.up)));
+    P = vunit(vscale(hp, -1));
+    const d = e.RP
+      ? e.d0 *
+        (1 - smoothstep((t - e.t0 - e.RP.t[0]) / (e.RP.t[1] - e.RP.t[0])))
+      : 0;
+    if (d)
+      P = vadd(vscale(P, Math.cos(d)), vscale(vcross(P, lf.up), Math.sin(d)));
+  } else P = azDir(lf, e.az(t));
+  const w = e.out ? 1 - smoothstep((t - (e.tB - ATT.ramp)) / ATT.ramp) : 1;
+  return { P, z: e.z, w, ep: e };
 }
-// ---------------- SLS: Mobile Launcher 1 on Pad 39B (Artemis) ----------------
-// The launcher's base 50.3 × 41.1 × 7.6 m, deck 14.3 m above the pad, its exhaust opening 19.5 m across the boosters' line
-// by 10.4 m; the grey tower, 12.2 m square, rises 105 m from the deck north of the rocket, flat-topped. Its arms reach south:
-// the core stage's intertank umbilical (42.7 m above the deck), forward skirt umbilical (54.9), the vehicle stabiliser
-// (61), the upper stage's umbilical (73.2), the crew access arm (83.5) and Orion's service module umbilical (85.3); the
-// crew access arm swings back after the hatch is closed, the rest in the seconds after liftoff. Two tail service masts on
-// the deck south of the core stage; eight posts under the boosters. A "clean pad": three 181-m lightning towers (steel
-// lattice and fibreglass mast) with wires between their tips; the water tower; the oxygen sphere and the two hydrogen
-// spheres (the 2022 one 25 m across).
-function padSLS(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    h = 15.0,
-    deck = h + 14.3,
-    stand = deck - 3.3,
-    glow = padGlow();
-  ksc39Hardstand(k, h, glow);
-  const by = deck - 7.6,
-    n0 = -20,
-    n1 = 30.3,
-    hx = 19.5 / 2,
-    hn = 10.4 / 2;
-  const slab = (e0, e1, nA, nB) =>
-    k.box(M.greyL, (e0 + e1) / 2, by, (nA + nB) / 2, e1 - e0, 7.6, nB - nA);
-  slab(-20.55, 20.55, n0, -hn);
-  slab(-20.55, 20.55, hn, n1);
-  slab(-20.55, -hx, -hn, hn);
-  slab(hx, 20.55, -hn, hn);
-  for (const [e, n] of [
-    [-15, -14],
-    [15, -14],
-    [-15, 6],
-    [15, 6],
-    [-15, 26],
-    [15, 26],
-  ])
-    k.box(M.concreteD, e, h, n, 3.2, by - h, 3.2);
-  for (const sd of [-1, 1]) {
-    k.box(M.greyL, sd * 4.2, deck, -7.6, 4.0, 10.1, 3.0);
-    for (let i = 0; i < 4; i++) {
-      const a = (i * Math.PI) / 2 + Math.PI / 4;
-      k.cyl(
-        M.steelD,
-        sd * 6.1 + Math.cos(a) * 2.3,
-        deck,
-        Math.sin(a) * 2.3,
-        0.6,
-        0.4,
-        1.5,
-        8,
-      );
-    }
-  }
-  const tn = 18.5 + 6.1,
-    ttop = deck + 105.2;
-  padLattice(k, M.greyL, 0, tn, 12.2, deck, 105.2, {
-    step: 6.1,
-    core: 5,
-    coreMat: M.grey,
-    floorEvery: 2,
-  });
-  k.box(M.greyL, 0, ttop, tn, 12.6, 1.2, 12.6);
-  k.cyl(M.fibre, 0, ttop + 1.2, tn, 0.4, 0.12, 8, 8);
-  // lightning towers (northwest, northeast, south) and their wires
-  const T1 = padLightningTower(k, -175, 160, 152, 29),
-    T2 = padLightningTower(k, 175, 160, 152, 29),
-    T3 = padLightningTower(k, 0, -235, 152, 29);
-  padWaterTower(k, 115, 70, 88.4, 6.6, 9);
-  for (const [e, n] of KSC_SPHERES) padSphere(k, e, n, 10.5);
-  padSphere(k, 300, 215, 12.6);
-  k.build(g);
-  padGround(g, KSC_GROUND(h));
-  padWire(g, T1, T2, 18);
-  padWire(g, T2, T3, 18);
-  padWire(g, T3, T1, 18);
-  for (const T of [T1, T2, T3])
-    for (const d of [-1, 1])
-      padWire(
-        g,
-        T,
-        T.clone().add(new THREE.Vector3(d * 60, -T.y + 1, -T.z * 0.15)),
-        6,
-      );
-  const face = tn - 6.1,
-    arms = [];
-  const ARMS = [
-    [42.7, 4.2, 0, 4],
-    [54.9, 4.2, 0, 4.5],
-    [61.0, 4.2, 0, 5],
-    [73.2, 2.6, 0, 5.5],
-    [83.5, 2.5, -1500, -1440, true],
-    [85.3, 2.5, 0, 6],
-  ]; // above the deck; rocket radius; swing-away; white room
-  ARMS.forEach(([y, r, t0, t1, room], i) => {
-    const he = i % 2 ? 4.0 : -4.0,
-      H = PV(he, deck + y, face),
-      len = Math.hypot(H.x, H.z) - r - (room ? 1.0 : 0.6);
-    const a = padArm(
-      len,
-      room ? 2.4 : 1.8,
-      room ? 2.6 : 2.0,
-      room ? M.white : M.greyL,
-      { room: room ? [3.0, 3.0, 3.4] : null, roomMat: M.white, line: !room },
-    );
-    const piv = new THREE.Group();
-    piv.position.copy(H);
-    piv.add(a);
-    g.add(piv);
-    arms.push({ piv, t0, t1, b0: Math.atan2(H.x, H.z), dir: H.x > 0 ? 1 : -1 });
-  });
-  const animate = (t) => {
-    const tl = t - md.M.t0;
-    for (const A of arms)
-      A.piv.rotation.y =
-        A.b0 +
-        A.dir * 1.35 * smoothstep(clamp((tl - A.t0) / (A.t1 - A.t0), 0, 1));
-  };
-  animate(md.M.t0 - 3600);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: deck,
-    animate,
-    foot: 9,
-    trenchD: 95,
-    block: [
-      padBlock(0, tn, 8, 8),
-      ...[T1, T2, T3].map((T) => padBlock(-T.x, T.z, 2, 8)),
-      ...[...KSC_SPHERES, [300, 215]].map((p) => sphereBlock(...p)),
-    ],
-  };
+// turn unit vector a toward b about axis P by the fraction f of the way, the short way round (any part along P blends linearly)
+function pitchToward(a, b, P, f) {
+  const ap = vunit(vsub(a, vscale(P, vdot(a, P)))),
+    bp = vunit(vsub(b, vscale(P, vdot(b, P))));
+  const ang = Math.atan2(vdot(P, vcross(ap, bp)), vdot(ap, bp)) * f,
+    cs = Math.cos(ang),
+    sn = Math.sin(ang);
+  const along = vdot(a, P) * (1 - f) + vdot(b, P) * f;
+  return vunit(
+    vadd(
+      vscale(
+        vadd(vscale(ap, cs), vscale(vcross(P, ap), sn)),
+        Math.sqrt(Math.max(0, 1 - along * along)),
+      ),
+      vscale(P, along),
+    ),
+  ); // Rodrigues, ap square to P
 }
-// ---------------- Falcon Heavy on Pad 39A (SpaceX) ----------------
-// The rocket stands on SpaceX's launch mount over the covered flame trench, held by the transporter-erector: a 73-m steel
-// strongback on its south side that brought it up the ramp from the hangar and raised it. A few minutes before launch it
-// leans back 1.5°; at liftoff it swings clear. West of the pad the old fixed service structure, grey, with its lightning
-// mast and SpaceX's crew access arm (66 m up, swung away for an uncrewed flight); the rotating structure is gone. The
-// Horizontal Integration Facility 500 m south at the foot of the ramp; SpaceX's Starship tower 300 m east.
+
+// ==== 42_shuttleview.js
+// ============================================================================
+// The Space Shuttle in the mission view: attitudes (the roll program and the roll to heads-up during ascent,
+// proximity operations around the ISS, the robot-arm deploy, the deorbit burn, entry at high angle of attack
+// with banked turns, the approach, flare and rollout), the orbiter rolling on its landing gear, and the runway
+// with its lights.
+// ============================================================================
+const SHV = { runway: null, lights: null, rwy: null };
+const _qS = new THREE.Quaternion(),
+  _axY = new THREE.Vector3(0, 1, 0),
+  _axX = new THREE.Vector3(1, 0, 0);
+const SH_MAIN_GEAR = [SH_MAIN_CONTACT[0] - 14.7, SH_MAIN_CONTACT[1]]; // main wheel contact relative to the orbiter's reference point (Y 14.7): [along, down] (m)
+// the reference point's height above the ground with every wheel down, at the 4.4° nose-down stance
+const SH_STAND_H = -(
+  SH_MAIN_GEAR[0] * Math.sin(SH_STANCE) +
+  SH_MAIN_GEAR[1] * Math.cos(SH_STANCE)
+);
+function isShuttle(md) {
+  return !!(md && md.L && md.L.sideMount);
+}
+// per mission: launch plane, roll program, deorbit burn, runway
+function shuttlePrep(md) {
+  if (md.shPrep !== undefined) return md.shPrep;
+  if (!isShuttle(md) || !md.ship || !md.ship.segs.length) {
+    md.shPrep = null;
+    return null;
+  }
+  const asc = md.ship.segs[0],
+    sE = asc.stateAt(asc.t1),
+    t0 = md.M.t0;
+  const h = vunit(vcross(sE.r, sE.v)); // orbit normal: the launch plane
+  // roll program: from the pad orientation (orbiter on the south side of the tank, tail facing south) to heads-down
+  const S = LAUNCH_SITES[md.cfg.site],
+    rP = sitePosEcl("earth", S.lat, S.lon, 0, t0),
+    lf = localFrame("earth", rP, t0);
+  const up = lf.up,
+    A = vunit(vcross(h, up)),
+    ref = vunit(vsub(up, A));
+  basisQuat(up, ref, _qS);
+  const Xw = new THREE.Vector3(1, 0, 0).applyQuaternion(_qS),
+    Zw = new THREE.Vector3(0, 0, 1).applyQuaternion(_qS);
+  const N = lf.north,
+    phi0 = Math.atan2(
+      N[0] * Xw.x + N[1] * Xw.y + N[2] * Xw.z,
+      N[0] * Zw.x + N[1] * Zw.y + N[2] * Zw.z,
+    );
+  const deorbit =
+    md.burns.find((b) => b.obj === "ship" && /^Deorbit/.test(b.name)) || null;
+  const et = md.M.obj("et"),
+    tSep = et ? et.t0 : asc.t1 + 18;
+  md.shPrep = {
+    h,
+    phi0,
+    deorbit,
+    rwy: RUNWAYS[md.cfg.runway] || null,
+    tHU: md.cfg.headsUpMET ? t0 + md.cfg.headsUpMET : null,
+    t0,
+    tSep,
+  };
+  return md.shPrep;
+}
+// At tank separation the vehicle stops being drawn as the stack, which stands ahead of its state (the state is its base),
+// and the orbiter (centred on its state) and the tank are drawn on their own. Each starts where it was drawn in the stack
+// and lets that offset go: the part they share over a few seconds, the rest (how far the tank's own state is from where
+// it sat in the stack) over a minute or two, so neither jumps and they do not slide against each other.
+// Returns the offset along the model's axes (model units), or null.
+const SH_SEP_TAU = 12,
+  SH_SEP_DRIFT = 60; // s
+const _vSep = new THREE.Vector3(),
+  _qSep = new THREE.Quaternion();
+function shuttleSepShift(c, t, cfgL, model, s) {
+  const md = MV.md;
+  if (!md || !isShuttle(md) || s.surface || s.pad) return null;
+  const orb =
+      c.o.id === "ship" && cfgL && cfgL.key === "sc" && cfgL.sc === "shuttle",
+    tank = c.o.id === "et";
+  if (!orb && !tank) return null;
+  const P = shuttlePrep(md);
+  if (!P) return null;
+  const dt = t - P.tSep;
+  if (dt < 0 || dt > 8 * SH_SEP_DRIFT) return null;
+  if (c.sepFor !== P) {
+    c.sepFor = P;
+    c.sepW = shuttleSepWorld(c, P, model);
+  }
+  const W = c.sepW;
+  if (!W) return null;
+  const fo = Math.exp(-dt / SH_SEP_TAU),
+    fr = Math.exp(-dt / SH_SEP_DRIFT);
+  _vSep
+    .set(W[0] * fo + W[3] * fr, W[1] * fo + W[4] * fr, W[2] * fo + W[5] * fr)
+    .applyQuaternion(_qSep.copy(c.node.quaternion).invert());
+  return [_vSep.x, _vSep.y, _vSep.z];
+}
+// the offsets at separation, in the scene's axes: [shared part, the tank's remainder]
+function shuttleSepWorld(c, P, model) {
+  const ship = craftById("ship"),
+    tB = P.tSep - 0.05,
+    cfgS = ship && cfgAt(ship, tB);
+  if (!cfgS || cfgS.key !== "launch") return null;
+  const tmp = { ...ship };
+  computeCraft(tmp, tB);
+  if (!tmp.s) return null;
+  const sm = craftModel(ship, cfgS),
+    A =
+      anchorY(ship, cfgS, sm, tmp.s) +
+      stagingShift(ship, tB, cfgS, sm, tmp.s) -
+      sm.userData.yc; // the stack's own origin (the tank's) along its axis
+  const qS = craftAttitude(
+    tmp,
+    tmp.s,
+    tB,
+    cfgS,
+    activeMounts(tmp, tmp.s, tB, cfgS, sm),
+    new THREE.Quaternion(),
+  );
+  const rot = (v) =>
+    new THREE.Vector3(v[0], v[1], v[2]).applyQuaternion(qS).toArray();
+  // the orbiter: its reference point in the stack less where its own model puts it (the model is the stack's turned half
+  // round about Y, which moves neither the origin nor the axis)
+  const ycO = craftModel(ship, cfgAt(ship, P.tSep + 1)).userData.yc,
+    So = rot([0, A + SH_STACK.orbY + ycO, SH_STACK.orbZ]);
+  if (c.o.id === "ship") return [...So, 0, 0, 0];
+  // the tank: its origin in the stack less where its own state and model put it (it leaves with the stack's attitude)
+  const tA = P.tSep + 0.001,
+    a = { ...ship },
+    b = { ...c };
+  computeCraft(a, tA);
+  computeCraft(b, tA);
+  if (!a.P || !b.P) return null;
+  const k = 1 / (c.node.scale.x || 0.001),
+    d = vsub(a.P, b.P),
+    r = rot([0, A - (model.position.y - model.userData.yc), 0]);
+  const Se = [d[0] * k + r[0], d[1] * k + r[1], d[2] * k + r[2]];
+  return [...So, Se[0] - So[0], Se[1] - So[1], Se[2] - So[2]];
+}
+// the orbiter sits in the stack model turned half round about its long axis (buildShuttleStack): going between the two
+// models, its eased attitude takes the half turn too instead of rolling over on screen
+function shuttleHalfTurn(c, a, b) {
+  const st = (x) => x && x.key === "launch",
+    ob = (x) => x && x.key === "sc" && x.sc === "shuttle";
+  return c.o.model === "shuttle" && ((st(a) && ob(b)) || (ob(a) && st(b)));
+}
+function runwayDir(rwy, rD, t) {
+  const lf = localFrame("earth", rD, t),
+    a = rwy.hdg * DEG;
+  return vunit(
+    vadd(vscale(lf.north, Math.cos(a)), vscale(lf.east, Math.sin(a))),
+  );
+}
+// attitude {nose, roll, spin (about the nose), pitch (about the wings)} or null for the generic rules
+function shuttleAttitude(c, s, t, cfgL) {
+  const md = MV.md,
+    P = shuttlePrep(md);
+  if (!P || !cfgL) return null;
+  const rD = c.rD || s.r,
+    vD = c.vD || s.v,
+    up = vunit(rD),
+    ex = s.extra || {};
+  if (cfgL.key === "launch") {
+    // the stack: heads-down after the roll program, heads-up later on some flights
+    const A = vunit(vcross(P.h, up)),
+      ref = vunit(vsub(up, A));
+    const nose =
+      s.pad || t < P.t0
+        ? up
+        : s.T > 0 && s.dir && vnorm(s.dir) > 0.5
+          ? s.dir
+          : vunit(vD);
+    let spin = P.phi0 * (1 - smoothstep((t - P.t0 - 7) / 13));
+    if (P.tHU && t > P.tHU) spin += Math.PI * smoothstep((t - P.tHU) / 36);
+    return { nose, roll: ref, spin };
+  }
+  if (c.o.model === "hubble") return { nose: up, roll: vscale(vunit(vD), -1) }; // released upright, as the arm held it
+  if (c.o.id === "et") {
+    const A = vunit(vcross(P.h, up));
+    return {
+      nose: vunit(vD),
+      roll: vunit(vsub(up, A)),
+      spin: P.tHU ? Math.PI : 0,
+    };
+  } // as it left the stack
+  if (cfgL.sc !== "shuttle") return null;
+  const w = bodyOmegaEcl("earth", t),
+    vAir = vsub(vD, vcross(w, rD));
+  if (s.surface)
+    return {
+      nose: P.rwy ? runwayDir(P.rwy, rD, t) : vperp(up),
+      roll: up,
+      pitch: SH_STANCE,
+    }; // standing nose down on its gear
+  const att = cfgL.att;
+  if (att === "entry") {
+    // along the airflow, raised by the angle of attack, the lift vector banked about the flight path
+    let f = vunit(vAir);
+    if (vnorm(vAir) < 0.004 && P.rwy) f = runwayDir(P.rwy, rD, t);
+    const u0 = vsub(up, vscale(f, vdot(up, f))),
+      u = vnorm(u0) > 1e-9 ? vunit(u0) : vperp(f),
+      right = vcross(f, u);
+    const mu = (ex.bank ?? 0) * DEG,
+      al = (ex.alpha ?? 40) * DEG;
+    const lift = vadd(vscale(u, Math.cos(mu)), vscale(right, Math.sin(mu)));
+    return {
+      nose: vadd(vscale(f, Math.cos(al)), vscale(lift, Math.sin(al))),
+      roll: lift,
+    };
+  }
+  const dB = P.deorbit; // deorbit: tail first and upside down, until the pitch-around to the entry attitude
+  if (dB && t >= dB.t - 1200 && t <= dB.t + dB.dur + 600)
+    return { nose: vscale(vunit(vD), -1), roll: vscale(up, -1) };
+  // heads-down flights: the orbiter leaves the tank upside down and rolls over ten minutes later
+  const spin = P.tHU ? 0 : Math.PI * (1 - smoothstep((t - P.tSep - 600) / 60));
+  if (s.T > 0 && s.dir && vnorm(s.dir) > 0.5)
+    return { nose: s.dir, roll: up, spin };
+  if (att === "rbar" || att === "rpm" || att === "vbar" || att === "fly") {
+    const iss = craftById("iss");
+    const F =
+      iss && iss.s ? lvlh(iss.rD || iss.s.r, iss.vD || iss.s.v) : lvlh(rD, vD);
+    if (att === "rbar") return { nose: F.x, roll: F.z }; // payload bay up toward the station
+    if (att === "rpm")
+      return {
+        nose: F.x,
+        roll: F.z,
+        pitch: TAU * smoothstep((t - cfgL.rpm0) / (cfgL.rpm1 - cfgL.rpm0)),
+      }; // the back-flip
+    if (att === "vbar")
+      return {
+        nose: F.x,
+        roll: F.z,
+        pitch:
+          (Math.PI / 2) *
+          (cfgL.sw0 != null
+            ? smoothstep((t - cfgL.sw0) / (cfgL.sw1 - cfgL.sw0))
+            : 1),
+      }; // nose up, bay facing the station
+    const rel = iss && iss.P ? toLvlh(F, vsub(c.P, iss.P)) : [1, 0, 0]; // flyaround: the bay keeps facing the station
+    return {
+      nose: F.x,
+      roll: F.z,
+      pitch: Math.PI / 2 + Math.atan2(rel[2], rel[0]),
+    };
+  }
+  return { nose: vunit(vD), roll: up, spin }; // in orbit: nose forward, payload bay facing space
+}
+// rotate the attitude quaternion by the extra spin/pitch of a shuttle attitude
+function applyShuttleSpin(nd, q) {
+  if (nd.spin) {
+    _qS.setFromAxisAngle(_axY, nd.spin);
+    q.multiply(_qS);
+  }
+  if (nd.pitch) {
+    _qS.setFromAxisAngle(_axX, nd.pitch);
+    q.multiply(_qS);
+  }
+}
+// With the gear down near the runway, the main wheels on the ground whatever the pitch: in the flare the reference point is
+// raised where the planned path (for wings level and the reference plane at gear height) would sink them, and on the runway
+// it rides at the height that keeps them on the paint as the nose comes down to the 4.4° stance. Standing after wheel stop
+// it stays at that height (the ground under it is where groundCraft put the state): the chase camera and the scene's origin
+// follow the reference point, and would drop 5.6 m at wheel stop if it went down to the ground.
+function shuttleGround(c, s, t) {
+  const P = shuttlePrep(MV.md);
+  if (!P || !P.rwy || s.pad) return;
+  const cf = c.o.configAt(t),
+    lab = cf && cf.label;
+  if (s.surface) {
+    if (lab && lab.key === "sc") {
+      s.r = vscale(s.r, 1 + SH_STAND_H / 1000 / vnorm(s.r));
+      s.v = vcross(bodyOmegaEcl("earth", t), s.r);
+    }
+    return;
+  }
+  if (!lab || !lab.gear) return;
+  const Rr = R_E + P.rwy.elev,
+    h = vnorm(s.r) - Rr;
+  if (h > 0.015) return;
+  const al = ((s.extra && s.extra.alpha) || 0) * DEG,
+    hMin =
+      (-SH_MAIN_GEAR[0] * Math.sin(al) - SH_MAIN_GEAR[1] * Math.cos(al)) /
+        1000 +
+      SH_RWY_TOP +
+      0.00002;
+  const rolling = s.extra && /rollout|wheel stop/.test(s.extra.phase || "");
+  if (h < hMin || rolling) s.r = vscale(s.r, (Rr + hMin) / vnorm(s.r)); // tyres 2 cm above the paint, as standing craft are
+  if (rolling) {
+    // and moving over it, not into it: the nose follows the way it rolls even as it comes to rest
+    const w = vcross(bodyOmegaEcl("earth", t), s.r),
+      up = vunit(s.r),
+      vg = vsub(s.v, w);
+    s.v = vadd(w, vsub(vg, vscale(up, vdot(vg, up))));
+  }
+}
+// The runway is drawn on the true sphere, SH_RWY_TOP above its elevation, while the surface patch under it is made of flat
+// facets that sag up to ~0.7 m below the sphere between their corners. Radius (km) of the drawn runway under a direction
+// in the planet's mesh frame, or null off the runway: what an orbiter standing on it rests on.
+const SH_RWY_TOP = 0.0006; // (60 cm: above the site's terrain too, app/43_terrain.js)

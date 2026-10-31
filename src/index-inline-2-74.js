@@ -1,266 +1,248 @@
-// index-inline-2 74 — append
-// Lines 21268-21531 of readable/index-inline-2.pretty.js (statement-aligned).
-function fieldsLEO(cfg, SC, launchers, grp, F) {
-  const pads = Object.entries(LAUNCH_SITES)
-    .filter(([k]) => /^KSC39/.test(k))
-    .map(([k, s]) => [k, s.name]);
-  grp(
-    "Launch",
-    {
-      path: "launcher",
-      label: "Launch vehicle",
-      type: "select",
-      options: launchers,
-      wide: true,
-    },
-    {
-      path: "site",
-      label: "Launch pad",
-      type: "select",
-      options: pads,
-      wide: true,
-    },
-    { path: "launch", label: "Liftoff (UTC)", type: "datetime", wide: true },
-    {
-      path: "incl",
-      label: "Orbit inclination",
-      unit: "°",
-      type: "number",
-      min: 28.5,
-      max: 57,
-      step: 0.01,
-    },
-    {
-      path: "parking.ha",
-      label: "Apogee at main engine cutoff",
-      unit: "km",
-      type: "number",
-      min: 160,
-      max: 700,
-      step: 1,
-    },
-    {
-      path: "oms2.hp",
-      label: "Perigee after OMS-2",
-      unit: "km",
-      type: "number",
-      min: 150,
-      max: 650,
-      step: 1,
-    },
-  );
-  grp(
-    "Crew & payload",
-    { path: "name", label: "Mission name", type: "text", wide: true },
-    { path: "shipName", label: "Orbiter", type: "text", wide: true },
-    {
-      path: "crew",
-      label: "Crew",
-      type: "number",
-      min: 2,
-      max: SC.crewMax,
-      step: 1,
-      unit: `max ${SC.crewMax}`,
-    },
-    {
-      path: "scOverride.PAY.dry",
-      label: "Payload in the bay",
-      unit: "kg",
-      type: "number",
-      min: 0,
-      max: 25000,
-      step: 100,
-    },
-    {
-      path: "scOverride.OMS.prop",
-      label: "OMS propellant",
-      unit: "kg",
-      type: "number",
-      min: 4000,
-      max: 12800,
-      step: 100,
-    },
-  );
-  grp(
-    "Landing",
-    {
-      path: "runway",
-      label: "Runway",
-      type: "select",
-      options: RUNWAY_LIST(),
-      wide: true,
-    },
-    {
-      path: "landing",
-      label: "Landing (UTC) — the nearest pass is chosen",
-      type: "datetime",
-      wide: true,
-    },
-    {
-      path: "dragChute",
-      label: "Drag chute",
-      type: "select",
-      options: [
-        ["true", "Yes (flown from 1992)"],
-        ["false", "No"],
-      ],
-      wide: true,
-      parse: (v) => v === "true",
-    },
-  );
-  return F;
+// index-inline-2 74 — dir
+// Lines 21397-21642 of readable/index-inline-2.pretty.js (statement-aligned).
+function shuttleShot(c, t, s, ex, cfgL, L) {
+  if (c.o.id !== "ship" || !cfgL) return null;
+  const ph = ex.phase || "",
+    iss = craftById("iss");
+  if (cfgL.sc === "shuttle") {
+    const att = cfgL.att;
+    if (
+      iss &&
+      iss.P &&
+      c.P &&
+      /^(rbar|rpm|vbar|fly)$/.test(att || "") &&
+      !cfgL.docked
+    ) {
+      const d = vnorm(vsub(c.P, iss.P)) * 1000; // m
+      if (d < 1500 && !(att === "vbar" && d < 75)) {
+        const v = att === "vbar" || att === "fly";
+        return {
+          key: "from-iss-" + (v ? "v" : "r"),
+          mode: "from",
+          from: "obj:iss",
+          off: v ? [23, -7, 5] : [-3, -7, -9],
+          lens: clamp(Math.round((0.24 * d) / 5) * 5, 24, 400),
+          dist: L * 3,
+          label: "Seen from the station",
+          blend: 2500,
+        };
+      }
+    }
+    if (
+      cfgL.docked ||
+      (att === "vbar" && iss && iss.P && c.P && vnorm(vsub(c.P, iss.P)) < 0.075)
+    )
+      return {
+        key: "docked",
+        mode: "chase",
+        az: 300 * DEG,
+        el: 24 * DEG,
+        dist: 0.21,
+        lens: 35,
+        drift: 0.01,
+        label: "Docked to the station",
+      };
+    if (cfgL.bayT != null && t >= cfgL.bayT - 30 && t < cfgL.bayT + 240)
+      return {
+        key: "bay-doors",
+        mode: "chase",
+        az: 125 * DEG,
+        el: 42 * DEG,
+        dist: Math.max(L * 1.9, 0.055),
+        lens: 35,
+        drift: 0.006,
+        label:
+          cfgL.bay === "open"
+            ? "Payload bay doors opening"
+            : "Payload bay doors closing",
+      };
+    if (att === "deploy")
+      return {
+        key: "deploy",
+        mode: "chase",
+        az: 140 * DEG,
+        el: 30 * DEG,
+        dist: Math.max(L * 2.4, 0.07),
+        lens: 35,
+        drift: 0.008,
+        label: "Payload deploy",
+      };
+  }
+  if (ph === "entry" && (ex.heat > 1 || ex.q > 200))
+    return {
+      key: "sh-entry",
+      mode: "chase",
+      az: 112 * DEG,
+      el: -3 * DEG,
+      dist: L * 3.4,
+      lens: 35,
+      label: "Entry",
+    };
+  if (/TAEM/.test(ph))
+    return {
+      key: "taem",
+      mode: "chase",
+      az: 150 * DEG,
+      el: 7 * DEG,
+      dist: L * 3.2,
+      lens: 35,
+      label: "Gliding to the runway",
+    };
+  if (/heading alignment/.test(ph))
+    return {
+      key: "hac",
+      mode: "chase",
+      az: 215 * DEG,
+      el: 14 * DEG,
+      dist: L * 3.4,
+      lens: 35,
+      label: "Heading alignment cone",
+    };
+  if (/outer glideslope/.test(ph))
+    return {
+      key: "ogs",
+      mode: "chase",
+      az: 162 * DEG,
+      el: 5 * DEG,
+      dist: L * 2.8,
+      lens: 35,
+      label: "Final approach",
+    };
+  if (/flare|rollout/.test(ph))
+    return {
+      key: "touchdown",
+      mode: "chase",
+      az: 120 * DEG,
+      el: 3 * DEG,
+      dist: L * 2.3,
+      lens: 35,
+      label: "Touchdown",
+    };
+  if (s.surface)
+    return {
+      key: "surface",
+      mode: "chase",
+      az: 145 * DEG,
+      el: 9 * DEG,
+      dist: L * 2.6,
+      lens: 35,
+      drift: 0.02,
+      label: "Wheel stop",
+    };
+  return null;
 }
-function renderDetail() {
-  const s = SETUP.scn,
-    cfg = SETUP.cfg;
-  const root = $("#scnDetail");
-  root.innerHTML = "";
-  root.append(
-    h(
-      "div",
-      { class: "det-head" },
-      h(
-        "div",
-        null,
-        h("h2", null, s.title),
-        h("div", { class: "det-sub" }, `${s.agency} · ${s.year} · ${s.status}`),
-      ),
-      h(
-        "div",
-        { class: "chipline" },
-        h(
-          "span",
-          { class: "pill " + (s.crewed ? "crew" : "robot") },
-          s.crewed ? "Crewed" : "Robotic",
-        ),
-        h("span", { class: "pill st" }, s.tag),
-      ),
-    ),
-  );
-  root.append(
-    h("p", { class: "p", style: "max-width:75ch;margin-top:8px" }, s.blurb),
-  );
-  if (s.crewNames)
-    root.append(h("p", { class: "p" }, h("b", null, "Crew: "), s.crewNames));
-  const colA = h("div"),
-    colB = h("div");
-  root.append(h("div", { class: "det-cols" }, colA, colB));
-  // inputs
-  colA.append(h("h3", { class: "h" }, "Mission inputs"));
-  const form = h("form", {
-    id: "cfgForm",
-    onsubmit: (e) => e.preventDefault(),
-  });
-  for (const g of fieldsFor(cfg, s)) {
-    const fs = h("fieldset", null, h("legend", null, g.group));
-    const grid = h("div", { class: "fgrid" });
-    fs.append(grid);
-    for (const f of g.items) grid.append(fieldEl(f));
-    form.append(fs);
+function directorUpdate(t, realDt) {
+  const md = MV.md;
+  const c = activeCraft(t);
+  if (!c) return;
+  const now = clockMs();
+  const jump =
+    DIR.lastT == null ||
+    Math.abs(t - DIR.lastT) >
+      Math.max(120, (STATE.playing ? STATE.rate : 1) * 0.6);
+  DIR.lastT = t;
+  if (CAM.target !== "obj:" + c.o.id) {
+    if (jump) {
+      CAM.target = "obj:" + c.o.id;
+      CAM.trans = null;
+      syncCamUI();
+    } else setTarget("obj:" + c.o.id, { force: true, keepMode: true });
   }
-  form.append(
-    h(
-      "div",
-      { class: "btnrow" },
-      h(
-        "button",
-        {
-          type: "button",
-          class: "tb",
-          onclick: () => {
-            SETUP.cfg = JSON.parse(JSON.stringify(SETUP.orig));
-            renderDetail();
-            schedulePlan(0);
-          },
-        },
-        "Reset to the real mission",
-      ),
-    ),
-  );
-  colA.append(form);
-  if (cfg.legs && cfg.legs[0] && cfg.legs[0].body === "mars") {
-    colA.append(h("h3", { class: "h" }, "Launch window — porkchop plot"));
-    colA.append(
-      h(
-        "p",
-        { class: "note-s" },
-        "Departure energy C3 (km²/s²) for every departure date and flight time to Mars. Darker = cheaper. Click to pick a departure and arrival; the planner re-targets the whole flight.",
-      ),
-    );
-    colA.append(
-      h(
-        "div",
-        { id: "porkWrap" },
-        h("canvas", { id: "pork", width: 640, height: 400 }),
-        h("div", { id: "porkInfo" }),
-      ),
-    );
-    setTimeout(drawPorkchop, 30);
+  const shot = (CAM.mode === "cine" && cineShot(c, t)) || directorShot(c, t);
+  if (!shot) return;
+  let cut = false;
+  if (shot.key !== DIR.key) {
+    cut = !!shot.cut; // (a cut: no blend from the last shot, the lens set at once)
+    if (!jump && DIR.key && !cut)
+      DIR.blend = {
+        pos: R.camera.position.clone(),
+        quat: R.camera.quaternion.clone(),
+        up: R.camera.up.clone(),
+        center: DIR.prm ? DIR.prm.mode !== "lookat" : true,
+        t0: now,
+        dur: shot.blend || 1800,
+      };
+    else DIR.blend = null;
+    DIR.key = shot.key;
+    DIR.since = now;
+    DIR.offAz = 0;
+    DIR.offEl = 0;
+    DIR.zoomK = 1;
+    DIR.lensUser = null;
+    DIR.dist = null;
+    DIR.aimH = null;
   }
-  // vehicle card
-  colB.append(
-    h("h3", { class: "h" }, "Launch vehicle"),
-    h("div", { id: "vehCard" }),
-  );
-  colB.append(
-    h("h3", { class: "h" }, "Spacecraft"),
-    h("div", { id: "scCard" }),
-  );
-  if (s.real)
-    colB.append(
-      h(
-        "h3",
-        { class: "h" },
-        s.status === "Flown" || s.status === "In flight"
-          ? "What really happened"
-          : "Reference",
-      ),
-      h(
-        "div",
-        { class: "kv kv2" },
-        ...Object.entries(s.real).flatMap(([k, v]) => [
-          h("div", { class: "k" }, k),
-          h("div", { class: "v", style: "color:var(--fg-2)" }, v),
-        ]),
-      ),
-    );
-  // plan box
-  root.append(
-    h(
-      "div",
-      { class: "plan-box" },
-      h(
-        "div",
-        { style: "min-width:0" },
-        h("div", { class: "plan-status", id: "planStatus" }),
-        h("div", { class: "plan-kpis", id: "planKpis" }),
-      ),
-      h(
-        "div",
-        { class: "go-wrap" },
-        h(
-          "label",
-          {
-            class: "chk go-sound",
-            title: "Sound (M) — engines, countdown, separations, ambient music",
-          },
-          h("input", {
-            type: "checkbox",
-            id: "goSound",
-            checked: SND.on,
-            onchange: (e) => setSound(e.target.checked),
-          }),
-          "Sound",
-        ),
-        h(
-          "button",
-          { class: "tb primary go", id: "goBtn", onclick: launchFromSetup },
-          "Fly this mission ▶",
-        ),
-      ),
-    ),
-  );
-  renderVehicleCard();
-  renderScCard();
-  renderPlanStatus();
+  const drift = shot.drift ? ((now - DIR.since) / 1000) * shot.drift : 0;
+  const target = shot.dist * DIR.zoomK;
+  DIR.dist =
+    DIR.dist == null || jump
+      ? target
+      : Math.exp(
+          Math.log(DIR.dist) +
+            (Math.log(target) - Math.log(DIR.dist)) * Math.min(1, realDt * 1.5),
+        );
+  if (shot.aimH == null)
+    DIR.aimH = null; // look above the base point (a standing rocket is framed around its middle)
+  else
+    DIR.aimH =
+      DIR.aimH == null || jump
+        ? shot.aimH
+        : DIR.aimH + (shot.aimH - DIR.aimH) * Math.min(1, realDt * 1.5);
+  const aim = shot.aimP
+    ? shot.aimP // (a point given outright: the middle of a vehicle as drawn, app/51_cine.js)
+    : shot.aimV && c.vD && vnorm(c.vD) > 1e-6
+      ? vscale(vunit(c.vD), shot.aimV) // (up the vehicle's axis, near enough its velocity in flight: a cinematic shot of a long stack)
+      : DIR.aimH != null && c.s
+        ? vscale(vunit(c.rD || c.s.r), DIR.aimH)
+        : null;
+  let az,
+    el,
+    centreK = 0;
+  if (shot.mode === "lookat") {
+    // keep the craft inside the middle of the film frame, whatever the lens and screen shape
+    const fr = frameRect(),
+      tH = 18 / CAM.lens,
+      tV = (tH * fr.h) / fr.w;
+    const aL = Math.atan(0.42 * tH),
+      eL = Math.atan(0.5 * tV);
+    // Dragged past the edge of that frame the camera turns from the body to the craft (centreK), so the craft can be looked
+    // at from every side; back inside it the body comes back into view
+    az = shot.az + DIR.offAz + Math.sin(drift) * Math.min(0.05, aL * 0.3);
+    el = clamp(shot.el + DIR.offEl, -1.5, 1.5);
+    const outA = Math.max(Math.abs(az) - aL, 0) / 0.25,
+      outE = Math.max(Math.abs(el) - eL, 0) / 0.25;
+    centreK = smoothstep(Math.max(outA, outE));
+  } else {
+    az = shot.az + DIR.offAz + drift;
+    el = clamp(shot.el + DIR.offEl, -1.5, 1.5);
+  }
+  DIR.prm = {
+    mode: shot.mode,
+    look: shot.look,
+    from: shot.from,
+    off: shot.off,
+    spot: shot.spot,
+    az,
+    el,
+    dist: DIR.dist,
+    aim,
+    centreK,
+    fromAz: shot.mode === "from" ? DIR.offAz : 0,
+    fromEl: shot.mode === "from" ? DIR.offEl : 0,
+    zoomK: DIR.zoomK,
+  };
+  DIR.shot = shot;
+  const lens = DIR.lensUser || shot.lens;
+  if (Math.abs(CAM.lens - lens) > 0.5) {
+    CAM.lens =
+      jump || cut
+        ? lens
+        : Math.exp(
+            Math.log(CAM.lens) +
+              (Math.log(lens) - Math.log(CAM.lens)) * Math.min(1, realDt * 2),
+          );
+    applyLens();
+    syncCamUI();
+  }
+  if (CAM.look !== shot.look && shot.look) CAM.look = shot.look;
 }

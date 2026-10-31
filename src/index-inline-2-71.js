@@ -1,466 +1,328 @@
-// index-inline-2 71 — math
-// Lines 20017-20480 of readable/index-inline-2.pretty.js (statement-aligned).
-function drawMinimap(t, force) {
-  const md = MV.md;
-  const cv = $("#mmc");
-  if (!md || !cv || cv.offsetParent === null) return;
-  const now = performance.now();
-  const view = mmViewFor(t);
-  if (!force && now - MM.drawn < 100 && MM.lastT === t && MM.lastKey === view)
-    return;
-  MM.drawn = now;
-  MM.lastT = t;
-  MM.lastKey = view;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const W = cv.clientWidth,
-    Hh = cv.clientHeight;
-  if (!W || !Hh) return;
-  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(Hh * dpr)) {
-    cv.width = Math.round(W * dpr);
-    cv.height = Math.round(Hh * dpr);
-  }
-  const g = cv.getContext("2d");
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, W, Hh);
-  if (view === "track") {
-    drawGroundTrack(g, W, Hh, t, now);
-    return;
-  }
-  const cx = W / 2,
-    cy = Hh / 2,
-    Rm = mmRmax(view),
-    k = (Math.min(W, Hh) / 2 - 10) / Rm;
-  const center = view === "sun" ? [0, 0, 0] : helio(view, t).r;
-  const X = (x) => clamp(cx + x * k, -4000, 4000),
-    Y = (y) => clamp(cy - y * k, -4000, 4000);
-  MM.hits = [];
-  $("#mmTitle").textContent =
-    MM_TITLES[view] + (MM.view === "auto" ? "" : " · fixed");
-  // background
-  const bg = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, Hh) * 0.7);
-  bg.addColorStop(0, "#0b1220");
-  bg.addColorStop(1, "#05080e");
-  g.fillStyle = bg;
-  g.fillRect(0, 0, W, Hh);
-  g.font = '10px "IBM Plex Sans Condensed", sans-serif';
-  g.textBaseline = "middle";
-  const dot = (x, y, r, col, label, id, labCol) => {
-    g.fillStyle = col;
-    g.beginPath();
-    g.arc(x, y, r, 0, TAU);
-    g.fill();
-    if (label) {
-      g.fillStyle = labCol || col;
-      g.fillText(label, x + r + 3, y - 1);
-    }
-    if (id) MM.hits.push({ x, y, id });
-  };
-  // reference rings / scale
-  g.strokeStyle = "rgba(120,140,170,.16)";
-  g.lineWidth = 1;
-  g.setLineDash([2, 4]);
-  if (view === "sun") {
-    for (let au = 1; au * AU < Rm; au += Rm > 4 * AU ? 2 : 1) {
-      g.beginPath();
-      g.arc(cx, cy, au * AU * k, 0, TAU);
-      g.stroke();
-      g.fillStyle = "rgba(135,148,168,.55)";
-      g.fillText(
-        `${au} AU`,
-        cx + au * AU * k * 0.71 + 2,
-        cy - au * AU * k * 0.71 - 6,
-      );
-    }
-  } else {
-    const step =
-      view === "earth"
-        ? Rm > 9e5
-          ? 5e5
-          : 1e5
-        : Rm > 2e5
-          ? 1e5
-          : Rm > 6e4
-            ? 2e4
-            : 1e4;
-    for (let r = step; r < Rm; r += step) {
-      g.beginPath();
-      g.arc(cx, cy, r * k, 0, TAU);
-      g.stroke();
-    }
-    g.fillStyle = "rgba(135,148,168,.55)";
-    g.fillText(`rings every ${fx(step, 0)} km`, 8, Hh - 10);
-  }
-  g.setLineDash([]);
-  // orbits and bodies
-  if (view === "sun") {
-    for (const p of PLANET_LIST) {
-      const a = planetElemsAt(p === "earth" ? "emb" : p, t).a;
-      if (a > Rm * 1.05) continue;
-      const pts = planetOrbitPts(p, t);
-      g.strokeStyle = BODY_COLORS[p] + "55";
-      g.beginPath();
-      for (let i = 0; i < pts.length; i += 2) {
-        const x = X(pts[i]),
-          y = Y(pts[i + 1]);
-        i ? g.lineTo(x, y) : g.moveTo(x, y);
-      }
-      g.stroke();
-    }
-    const sg = g.createRadialGradient(cx, cy, 0, cx, cy, 14);
-    sg.addColorStop(0, "rgba(255,230,170,.9)");
-    sg.addColorStop(1, "rgba(255,200,120,0)");
-    g.fillStyle = sg;
-    g.fillRect(cx - 14, cy - 14, 28, 28);
-    dot(cx, cy, 3.5, "#ffd27a", null, "body:sun");
-    for (const p of PLANET_LIST) {
-      const a = planetElemsAt(p === "earth" ? "emb" : p, t).a;
-      if (a > Rm * 1.05) continue;
-      const P = helio(p, t).r;
-      dot(
-        X(P[0]),
-        Y(P[1]),
-        p === "earth" || p === "mars" ? 3.6 : 2.8,
-        BODY_COLORS[p],
-        BODIES[p].name,
-        "body:" + p,
-      );
-    }
-  } else if (view === "earth") {
-    if (!MM.moonOrb || Math.abs(t - MM.moonOrbT) > 0.5 * DAY) {
-      const pts = [];
-      for (let i = 0; i <= 160; i++) {
-        const m = moonGeo(t - 13.7 * DAY + (i / 160) * 27.4 * DAY).r;
-        pts.push(m[0], m[1]);
-      }
-      MM.moonOrb = pts;
-      MM.moonOrbT = t;
-    }
-    g.strokeStyle = "rgba(200,210,225,.35)";
-    g.beginPath();
-    MM.moonOrb.forEach((v, i) => {
-      if (i % 2) return;
-      const x = X(MM.moonOrb[i]),
-        y = Y(MM.moonOrb[i + 1]);
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+// index-inline-2 71 — cam
+// Lines 20477-20802 of readable/index-inline-2.pretty.js (statement-aligned).
+function ctrTipNode(model) {
+  const u = model.userData;
+  if (u.ctrTip === undefined) {
+    u.ctrTip = null;
+    model.traverse((n) => {
+      if (!u.ctrTip && n.userData && n.userData.wingtips) u.ctrTip = n;
     });
-    g.stroke();
-    dot(
-      cx,
-      cy,
-      Math.max(4.5, BODIES.earth.R * k),
-      "#4f8dff",
-      "Earth",
-      "body:earth",
-      "#9cc3ff",
-    );
-    const Mo = moonGeo(t).r;
-    dot(
-      X(Mo[0]),
-      Y(Mo[1]),
-      Math.max(3, BODIES.moon.R * k),
-      "#cfd3d8",
-      "Moon",
-      "body:moon",
-    );
-  } else {
-    const pole = bodyPoleEcl("mars", t);
-    const e1 = vperp(pole),
-      e2 = vcross(pole, e1);
-    for (const [nm, a] of [
-      ["Phobos", 9376],
-      ["Deimos", 23463],
-    ]) {
-      if (a > Rm * 1.1) continue;
-      g.strokeStyle = "rgba(200,170,150,.3)";
-      g.beginPath();
-      for (let i = 0; i <= 96; i++) {
-        const th = (i / 96) * TAU;
-        const p = vadd(
-          vscale(e1, a * Math.cos(th)),
-          vscale(e2, a * Math.sin(th)),
-        );
-        const x = X(p[0]),
-          y = Y(p[1]);
-        i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  return u.ctrTip;
+}
+// how strongly the tips condense now: the air's density and humidity, and the lift the wings make (the angle of attack)
+function contrailStrength(c, s, t, cfgL, model) {
+  if (
+    !ctrTipNode(model) ||
+    !s ||
+    s.ref !== "earth" ||
+    s.surface ||
+    !(cfgL && cfgL.key === "sc")
+  )
+    return 0;
+  const ex = s.extra || {};
+  if (!(ex.q > 1500) || ex.alpha == null) return 0;
+  const h = ex.alt != null ? ex.alt : vnorm(s.r) - BODIES.earth.R,
+    humid = CTR_HUMID[MV.md.cfg.runway] ?? 0.6;
+  const dens = 1 - smoothstep((h - 1.5) / 9),
+    lift = smoothstep((ex.alpha - 4) / 6),
+    q = smoothstep((ex.q - 1500) / 4000);
+  return humid * dens * lift * q;
+}
+// called every frame for a craft in the air; adds a sample at each tip while the trail forms, and draws what is left
+function updateContrails(c, s, t, cfgL, model) {
+  const k = contrailStrength(c, s, t, cfgL, model);
+  let tr = c.ctr;
+  if (!tr) {
+    if (k <= 0) return;
+    tr = contrailInit(c);
+  }
+  const jump = tr.lastT != null && Math.abs(t - tr.lastT) > 5;
+  if (jump) {
+    tr.n = 0;
+    tr.head = 0;
+  } // a leap in time: the old threads are long gone
+  bodyQuat("earth", t, _ctrQ);
+  const E = helio("earth", t).r,
+    O = R.O;
+  if (k > 0 && t !== tr.lastT && !(MV.rate > 30)) {
+    // a sample at each tip, Earth-fixed
+    if (tr.tipKey !== model) {
+      tr.tipNode = ctrTipNode(model);
+      tr.tipKey = model;
+    }
+    if (tr.tipNode) {
+      const i = tr.head;
+      _ctrC.copy(_ctrQ).invert();
+      for (let side = 0; side < 2; side++) {
+        const w = tr.tipNode.userData.wingtips[side];
+        _ctrV.set(w[0], w[1], w[2]);
+        tr.tipNode.localToWorld(_ctrV);
+        _ctrV.x += O[0] - E[0];
+        _ctrV.y += O[1] - E[1];
+        _ctrV.z += O[2] - E[2];
+        _ctrV.applyQuaternion(_ctrC);
+        const j = 3 * (2 * i + side);
+        tr.P[j] = _ctrV.x;
+        tr.P[j + 1] = _ctrV.y;
+        tr.P[j + 2] = _ctrV.z;
       }
-      g.stroke();
-      g.fillStyle = "rgba(200,170,150,.6)";
-      g.fillText(nm, cx + a * k * 0.72 + 3, cy + a * k * 0.72);
+      tr.T[i] = t;
+      tr.K[i] = k;
+      tr.head = (i + 1) % CTR_N;
+      tr.n = Math.min(tr.n + 1, CTR_N);
     }
-    dot(
-      cx,
-      cy,
-      Math.max(5, BODIES.mars.Rmean * k),
-      "#ff8a5c",
-      "Mars",
-      "body:mars",
-    );
   }
-  if (view !== "sun") {
-    // direction of the Sun
-    const sd = vunit(vscale(center, -1));
-    const ang = Math.atan2(sd[1], sd[0]);
-    const rr = Math.min(W, Hh) / 2 - 12;
-    const ax = cx + Math.cos(ang) * rr,
-      ay = cy - Math.sin(ang) * rr;
-    g.fillStyle = "#ffd27a";
-    g.beginPath();
-    g.arc(ax, ay, 3, 0, TAU);
-    g.fill();
-    g.strokeStyle = "rgba(255,210,122,.45)";
-    g.beginPath();
-    g.moveTo(cx + Math.cos(ang) * (rr - 22), cy - Math.sin(ang) * (rr - 22));
-    g.lineTo(ax - Math.cos(ang) * 6, ay + Math.sin(ang) * 6);
-    g.stroke();
-    g.fillStyle = "rgba(255,210,122,.8)";
-    g.fillText(
-      "Sun",
-      ax + (Math.cos(ang) > 0 ? -22 : 6),
-      ay + (Math.sin(ang) > 0 ? 10 : -10),
-    );
-  }
-  // flight path: flown part bright, the plan ahead dim; engine burns thick orange, coasting thin blue
-  const pth = mmPath(view);
-  const n = pth.x.length;
-  if (n > 1) {
-    let iNow = 0;
-    while (iNow + 1 < n && pth.t[iNow + 1] <= t) iNow++;
-    const runs = (from, to, fut) => {
-      // segments i → i+1 for i in [from, to), batched by style
-      let i = from;
-      while (i < to) {
-        const pw = pth.p[i],
-          col = pth.c[i];
-        let j = i;
-        g.beginPath();
-        g.moveTo(X(pth.x[i]), Y(pth.y[i]));
-        while (j < to && pth.p[j] === pw && pth.c[j] === col) {
-          const x = X(pth.x[j + 1]),
-            y = Y(pth.y[j + 1]);
-          pth.b[j + 1] ? g.moveTo(x, y) : g.lineTo(x, y);
-          j++;
-        }
-        if (pw) {
-          g.setLineDash([]);
-          g.lineWidth = fut ? 2.4 : 3.2;
-          g.strokeStyle = fut ? hexA(PCOL.burn, 0.6) : PCOL.burn;
-        } else {
-          g.setLineDash(fut ? [3, 3] : []);
-          g.lineWidth = fut ? 1 : 1.6;
-          g.strokeStyle = fut ? hexA(col, 0.42) : col;
-        }
-        g.stroke();
-        i = j;
+  tr.lastT = t;
+  // the ribbons: the samples from the oldest alive to the newest, one strip per tip
+  const g = tr.mesh.geometry,
+    pos = g.attributes.position.array,
+    uv = g.attributes.aUV.array,
+    aa = g.attributes.aA.array;
+  const cam = R.camera.position;
+  let v = 0;
+  const sunD = vunit(vscale(E, -1));
+  tr.mesh.material.uniforms.uSunDir.value.set(sunD[0], sunD[1], sunD[2]);
+  tr.mesh.material.uniforms.uSun.value
+    .copy(R.sunLight.color)
+    .multiplyScalar(0.5);
+  tr.mesh.material.uniforms.uAmb.value
+    .copy(R.hemi.color)
+    .multiplyScalar(0.15 * R.hemi.intensity + 0.03); // (dim in the dark: the night fill is a cheat for the ground, not for threads of mist)
+  const pair = (x, y, z, w, a, m) => {
+    for (const sgn of [-1, 1]) {
+      const o = 3 * v;
+      pos[o] = x + _ctrS.x * w * sgn;
+      pos[o + 1] = y + _ctrS.y * w * sgn;
+      pos[o + 2] = z + _ctrS.z * w * sgn;
+      uv[2 * v] = m;
+      uv[2 * v + 1] = sgn;
+      aa[v] = a;
+      v++;
+    }
+  };
+  for (let side = 0; side < 2 && tr.n > 1; side++) {
+    let prevX = 0,
+      prevY = 0,
+      prevZ = 0,
+      first = true,
+      lastW = 0;
+    for (let m = 0; m < tr.n; m++) {
+      const i = (tr.head - tr.n + m + CTR_N) % CTR_N,
+        age = t - tr.T[i];
+      if (age < 0 || age > CTR_LIFE) continue;
+      const j = 3 * (2 * i + side);
+      _ctrV.set(tr.P[j], tr.P[j + 1], tr.P[j + 2]).applyQuaternion(_ctrQ);
+      const x = _ctrV.x + E[0] - O[0],
+        y = _ctrV.y + E[1] - O[1],
+        z = _ctrV.z + E[2] - O[2];
+      if (first) {
+        prevX = x;
+        prevY = y;
+        prevZ = z;
       }
-      g.setLineDash([]);
-    };
-    g.lineCap = "round";
-    runs(iNow, n - 1, true);
-    runs(0, iNow, false);
-    g.lineCap = "butt";
-    g.lineWidth = 1;
-    // a dot for every burn (filled once fired, a ring while ahead) — even a few-second correction shows up
-    const rBody =
-      view === "sun"
-        ? 0
-        : Math.max(
-            view === "earth" ? 4.5 : 5,
-            (view === "earth" ? BODIES.earth.R : BODIES.mars.Rmean) * k,
-          ) + 2;
-    for (const b of mmBurnPts(view)) {
-      const x = X(b.x),
-        y = Y(b.y);
-      if (
-        Math.hypot(x - cx, y - cy) < rBody ||
-        x < 0 ||
-        y < 0 ||
-        x > W ||
-        y > Hh
-      )
-        continue;
-      g.beginPath();
-      g.arc(x, y, 2.9, 0, TAU);
-      if (b.t <= t) {
-        g.fillStyle = PCOL.burn;
-        g.fill();
-        g.strokeStyle = "rgba(5,8,14,.9)";
-        g.lineWidth = 1;
-        g.stroke();
-      } else {
-        g.strokeStyle = hexA(PCOL.burn, 0.85);
-        g.lineWidth = 1.3;
-        g.stroke();
-        g.lineWidth = 1;
-      }
+      _ctrT.set(x - prevX, y - prevY, z - prevZ);
+      if (_ctrT.lengthSq() < 1e-12) _ctrT.set(0, 0, 1);
+      _ctrS
+        .set(cam.x - x, cam.y - y, cam.z - z)
+        .cross(_ctrT)
+        .normalize(); // across the thread, facing the camera
+      const w = (0.45 + 0.5 * age) * 0.001 * (0.6 + 0.4 * tr.K[i]); // m → km: a thread half a metre wide at the tip, a few metres wide as it ages
+      const a =
+        tr.K[i] *
+        0.55 *
+        (1 - smoothstep((age - 4) / (CTR_LIFE - 4))) *
+        Math.min(age / 0.3 + 0.2, 1);
+      if (first) {
+        pair(x, y, z, w, 0, m);
+        first = false;
+      } // (a clear pair at each end: the strip joins the other with nothing drawn between)
+      pair(x, y, z, w, a, m);
+      lastW = w;
+      prevX = x;
+      prevY = y;
+      prevZ = z;
     }
+    if (!first) pair(prevX, prevY, prevZ, lastW, 0, 0);
   }
-  if (view === "sun") {
-    // gravity-assist and arrival markers
-    if (!MM.flybyPts) {
-      MM.flybyPts = [];
-      for (const e of md.events)
-        if (
-          ["flyby", "landing", "touchdown"].includes(e.kind) ||
-          (e.kind === "burn" && /insertion|MOI|capture/i.test(e.name))
-        ) {
-          const s = md.ship.stateAt(e.t);
-          if (s) {
-            const P = vadd(planetHelio(s.ref, e.t).r, s.r);
-            MM.flybyPts.push({ x: P[0], y: P[1], kind: e.kind, name: e.name });
-          }
-        }
-    }
-    for (const f of MM.flybyPts) {
-      g.strokeStyle = f.kind === "flyby" ? "#b896ff" : "#ff6767";
-      g.beginPath();
-      g.arc(X(f.x), Y(f.y), 5, 0, TAU);
-      g.stroke();
-    }
-  }
-  // the craft(s)
-  const crafts = [craftById("ship"), activeCraft(t)].filter(
-    (c, i, A) => c && c.P && A.indexOf(c) === i,
-  );
-  for (const c of crafts) {
-    const p = vsub(c.P, center);
-    let x = cx + p[0] * k,
-      y = cy - p[1] * k;
-    const off = x < 4 || x > W - 4 || y < 4 || y > Hh - 4;
-    const prim = c.o.id === "ship";
-    if (off) {
-      const ang = Math.atan2(cy - y, x - cx);
-      x = cx + Math.cos(ang) * (Math.min(W, Hh) / 2 - 8);
-      y = cy - Math.sin(ang) * (Math.min(W, Hh) / 2 - 8);
-    }
-    const v = c.Vh
-      ? vsub(c.Vh, view === "sun" ? [0, 0, 0] : helio(view, t).v)
-      : null;
-    const burning = !!(c.s && c.s.T > 0 && (!c.s.surface || c.s.pad));
-    const pulse = burning
-      ? 6 + 4 * (0.5 + 0.5 * Math.sin(now / 120))
-      : 5 + 3 * (0.5 + 0.5 * Math.sin(now / 260));
-    g.strokeStyle = burning
-      ? hexA(PCOL.burn, 0.8)
-      : prim
-        ? "rgba(255,181,71,.55)"
-        : "rgba(127,209,255,.55)";
-    g.beginPath();
-    g.arc(x, y, pulse, 0, TAU);
-    g.stroke();
-    g.fillStyle = burning ? PCOL.burn : prim ? "#ffb547" : "#7fd1ff";
-    g.beginPath();
-    g.moveTo(x, y - 4);
-    g.lineTo(x + 4, y);
-    g.lineTo(x, y + 4);
-    g.lineTo(x - 4, y);
-    g.closePath();
-    g.fill();
-    if (v && vnorm(v) > 1e-6 && !off) {
-      const vd = vunit(v);
-      g.strokeStyle = g.fillStyle;
-      g.beginPath();
-      g.moveTo(x, y);
-      g.lineTo(x + vd[0] * 14, y - vd[1] * 14);
-      g.stroke();
-    }
-    if (off) {
-      g.fillStyle = "#ffb547";
-      g.fillText(
-        "off map →",
-        clamp(x - 52, 4, W - 60),
-        y + (y > cy ? -10 : 10),
-      );
-    }
-    MM.hits.push({ x, y, id: "obj:" + c.o.id });
-  }
-  // locator inset: where this local system is around the Sun
-  if (view !== "sun") {
-    const ix = W - 34,
-      iy = 34,
-      ir = 26;
-    g.fillStyle = "rgba(5,8,14,.85)";
-    g.strokeStyle = "rgba(120,140,170,.35)";
-    g.beginPath();
-    g.arc(ix, iy, ir + 3, 0, TAU);
-    g.fill();
-    g.stroke();
-    const ik = ir / (1.7 * AU);
-    for (const p of ["earth", "mars"]) {
-      const pts = planetOrbitPts(p, t);
-      g.strokeStyle = BODY_COLORS[p] + "66";
-      g.beginPath();
-      for (let i = 0; i < pts.length; i += 2) {
-        const x = ix + pts[i] * ik,
-          y = iy - pts[i + 1] * ik;
-        i ? g.lineTo(x, y) : g.moveTo(x, y);
-      }
-      g.stroke();
-    }
-    g.fillStyle = "#ffd27a";
-    g.beginPath();
-    g.arc(ix, iy, 2, 0, TAU);
-    g.fill();
-    for (const p of ["earth", "mars"]) {
-      const P = helio(p, t).r;
-      g.fillStyle = BODY_COLORS[p];
-      g.beginPath();
-      g.arc(ix + P[0] * ik, iy - P[1] * ik, p === view ? 2.8 : 1.8, 0, TAU);
-      g.fill();
-    }
-    g.fillStyle = "rgba(135,148,168,.8)";
-    g.fillText("Sun", ix - 8, iy + ir + 10);
-  }
-  g.fillStyle = "rgba(135,148,168,.5)";
-  g.textAlign = "right";
-  g.fillText("ecliptic · north up · ♈ →", W - 6, Hh - 10);
-  g.textAlign = "left";
-  // legend: engine burn vs coasting (skipped on the small phone-size map)
-  if (W >= 220) {
-    g.fillStyle = "rgba(5,8,14,.6)";
-    g.fillRect(4, 4, 78, 30);
-    g.lineCap = "round";
-    g.strokeStyle = PCOL.burn;
-    g.lineWidth = 3.2;
-    g.beginPath();
-    g.moveTo(10, 12);
-    g.lineTo(22, 12);
-    g.stroke();
-    g.strokeStyle = MV.layers.phasecol ? "rgba(195,205,218,.8)" : PCOL.coast;
-    g.lineWidth = 1.6;
-    g.beginPath();
-    g.moveTo(10, 26);
-    g.lineTo(22, 26);
-    g.stroke();
-    g.lineCap = "butt";
-    g.lineWidth = 1;
-    g.fillStyle = "rgba(205,214,226,.85)";
-    g.fillText("engine burn", 28, 12);
-    g.fillText("coasting", 28, 26);
-  }
-  // where are we, in words
-  const c = activeCraft(t) || craftById("ship");
-  const info = $("#mmInfo");
-  if (c && c.P) {
-    const dS = vnorm(c.P),
-      dE = vnorm(vsub(c.P, helio("earth", t).r)),
-      dMo = vnorm(vsub(c.P, helio("moon", t).r)),
-      dMa = vnorm(vsub(c.P, helio("mars", t).r));
-    const dom = dominantBody(c.P, t);
-    let txt;
-    if (dom === "sun") {
-      const dest = nextDestination(md, t, "sun");
-      txt = `Interplanetary space, ${regionText(dS)} · ${fDist(dS)} from the Sun · ${fDist(dE)} from Earth${dest && dest !== "earth" ? ` · ${fDist(vnorm(vsub(c.P, helio(dest, t).r)))} to ${BODIES[dest].name}` : ""}`;
-    } else if (dom === "moon")
-      txt = `Inside the Moon’s sphere of influence · ${fDist(dMo - BODIES.moon.R)} above the Moon · ${fDist(dE)} from Earth`;
-    else if (dom === "earth")
-      txt = `Earth–Moon space · ${fDist(dE)} from Earth’s centre · ${fDist(dMo)} from the Moon`;
-    else
-      txt = `Inside Mars’s sphere of influence · ${fDist(dMa - BODIES.mars.Rmean)} above Mars · ${fDist(dE)} from Earth`;
-    const who = c.o.id === "ship" ? "" : c.o.name + ": ";
-    if (info.textContent !== who + txt) info.textContent = who + txt;
-  }
+  g.attributes.position.needsUpdate = true;
+  g.attributes.aUV.needsUpdate = true;
+  g.attributes.aA.needsUpdate = true;
+  g.setDrawRange(0, Math.max(0, 6 * (v / 2 - 1)));
+  tr.mesh.visible = v >= 4;
 }
 
-// ---------------- ground track (Earth-orbit flights) ----------------
-// The world map (equirectangular, the planet texture itself) with night shaded, the flight's ground track about an
-// orbit and a half behind and one ahead, the launch site and the landing runway.
+// ==== 50_camera.js
+// ============================================================================
+// Camera: orbit / chase / look-at / ground observer / top-down, with film
+// lenses (35 mm full-frame equivalent) and letterbox framing.
+// ============================================================================
+const CAM = {
+  mode: "auto",
+  target: "obj:ship",
+  look: "body:moon",
+  az: 200 * DEG,
+  el: 10 * DEG,
+  dist: 0.3,
+  roll: 0,
+  lens: 35,
+  aspect: 0,
+  ground: { yaw: 0, pitch: 10 * DEG, track: true },
+  trans: null,
+  lastTargetP: null,
+};
+function targetPos(id, t) {
+  if (!id) return null;
+  if (id.startsWith("body:")) return helio(id.slice(5), t).r;
+  const c = craftById(id.slice(4));
+  if (c && c.P) return c.P;
+  if (c) {
+    const s = craftState(c, t);
+    if (s) return vadd(helio(s.ref, t).r, s.r);
+  }
+  return null;
+}
+function targetRadius(id) {
+  if (id && id.startsWith("body:")) {
+    const b = R.bodies[id.slice(5)];
+    return b ? b.R : 1;
+  }
+  return 0;
+}
+// the director runs the camera: 'auto', or 'cine' (app/51_cine.js) which is the director with the launch cut as a film
+function directed() {
+  return CAM.mode === "auto" || CAM.mode === "cine";
+}
+function targetCraft() {
+  return CAM.target.startsWith("obj:") ? craftById(CAM.target.slice(4)) : null;
+}
+function setTarget(id, opts = {}) {
+  if (id === CAM.target && !opts.force) return;
+  const t = MV.tNow;
+  const from = targetPos(CAM.target, t);
+  const prevId = CAM.target;
+  CAM.target = id;
+  const rT = targetRadius(id);
+  const c = targetCraft();
+  let dist = CAM.dist;
+  if (rT > 0) dist = Math.max(dist, rT * 3.2);
+  else if (c && c.cur)
+    dist = Math.max(0.03, (c.cur.userData.len || 10) * 0.001 * 3.5);
+  if (opts.dist) dist = opts.dist;
+  if (from)
+    CAM.trans = {
+      fromId: prevId,
+      fromP: from,
+      t0: clockMs(),
+      dur: 1100,
+      distFrom: CAM.dist,
+      distTo: dist,
+    };
+  CAM.dist = dist;
+  if (CAM.mode === "ground" && id.startsWith("body:")) setMode("orbit");
+  if (directed() && !opts.keepMode)
+    setMode(id.startsWith("body:") ? "orbit" : "chase");
+  syncCamUI();
+}
+function setMode(m) {
+  const wasAuto = directed();
+  CAM.mode = m;
+  $("#lookWrap").hidden = m !== "lookat";
+  if (m !== "cine") CINE.timeK = 1;
+  if (m === "auto" || m === "cine") {
+    DIR.key = "";
+    DIR.lastT = null;
+    DIR.blend = null;
+  }
+  if (wasAuto && !directed() && DIR.prm) {
+    CAM.dist = DIR.prm.dist;
+    CAM.az = DIR.prm.az;
+    CAM.el = DIR.prm.el;
+  }
+  if (m === "ground") {
+    CAM.ground.track = true;
+    if (CAM.lens < 85) CAM.lens = 200;
+  }
+  if (m === "top") {
+    CAM.el = 89 * DEG;
+  }
+  if (m === "chase") {
+    CAM.az = 200 * DEG;
+    CAM.el = 12 * DEG;
+  }
+  if (m === "lookat") {
+    CAM.az = 12 * DEG;
+    CAM.el = 6 * DEG;
+  }
+  applyLens();
+  syncCamUI();
+}
+// The point the camera looks at sits at the middle of the part of the screen the panels leave free, not of the whole
+// screen: on a tall screen the panels fill the bottom third, and the craft would otherwise sit just above them. The
+// frustum is shifted (an off-centre projection), so nothing else changes.
+let VSHIFT = 0;
+function applyViewShift() {
+  const W = R.width,
+    H = R.height,
+    b = screenBand(),
+    d = Math.round(H / 2 - (b.top + b.bot) / 2);
+  if (Math.abs(d) < 4) {
+    if (VSHIFT) {
+      R.camera.clearViewOffset();
+      VSHIFT = 0;
+    }
+    return;
+  }
+  if (d !== VSHIFT) {
+    R.camera.setViewOffset(W, H, 0, d, W, H);
+    VSHIFT = d;
+  }
+}
+function frameRect() {
+  const W = R.width,
+    Hh = R.height,
+    A = CAM.aspect;
+  if (!A) return { x: 0, y: 0, w: W, h: Hh };
+  if (W / Hh > A) {
+    const w = Hh * A;
+    return { x: (W - w) / 2, y: 0, w, h: Hh };
+  }
+  const hh = W / A;
+  return { x: 0, y: (Hh - hh) / 2, w: W, h: hh };
+}
+function applyLens() {
+  const fr = frameRect();
+  const tanH = 18 / CAM.lens; // 36 mm wide full-frame sensor
+  const tanV = (tanH * R.height) / fr.w;
+  R.camera.fov = 2 * Math.atan(tanV) * RAD;
+  R.camera.aspect = R.width / R.height;
+  applyViewShift();
+  R.camera.updateProjectionMatrix();
+  R.pxPerRad = R.height / (2 * tanV);
+  const lb = (id, css) => {
+    $(id).style.cssText = css;
+  };
+  lb("#lbT", `left:0;right:0;top:0;height:${fr.y}px`);
+  lb("#lbB", `left:0;right:0;bottom:0;height:${R.height - fr.y - fr.h}px`);
+  lb("#lbL", `top:0;bottom:0;left:0;width:${fr.x}px`);
+  lb("#lbR", `top:0;bottom:0;right:0;width:${R.width - fr.x - fr.w}px`);
+  const gd = $("#guides");
+  gd.style.cssText = `left:${fr.x}px;top:${fr.y}px;width:${fr.w}px;height:${fr.h}px`;
+  const bi = $("#burnin");
+  bi.style.left = fr.x + 14 + "px";
+  bi.style.bottom = R.height - fr.y - fr.h + 10 + "px";
+}
+// where a craft actually stands on a body (its surface segment), preferring the camera target
+function surfaceSpotOn(body, after = -Infinity) {
+  const order = [
+    targetCraft(),
+    craftById("ship"),
+    craftById("lander"),
+    ...MV.crafts,
+  ].filter(Boolean);
+  for (const c of order)
+    for (const sg of c.o.segs)
+      if (sg.type === "surface" && sg.ref === body && sg.t0 > after)
+        return { lat: sg.lat, lon: sg.lon, elev: sg.elev || 0 };
+  return null;
+}

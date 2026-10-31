@@ -1,5 +1,5 @@
 // index-inline-2 02 — cur
-// Lines 258-374 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 271-387 of readable/index-inline-2.pretty.js (statement-aligned).
 const Planner = {
   worker: null,
   url: null,

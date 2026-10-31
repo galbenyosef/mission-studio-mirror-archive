@@ -1,8 +1,153 @@
 // index-inline-2 23 — add
-// Lines 6386-6729 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 6350-6695 of readable/index-inline-2.pretty.js (statement-aligned).
+function shuttlePayload(kind, flags = {}, B = SH_BAY_BUILTIN) {
+  const g = new THREE.Group();
+  if (kind === "dfi") {
+    const p = box(3.6, 3.0, 1.6, mat("#c9c6bd", "metal"));
+    p.position.set(0, 8.4, -2.2);
+    g.add(p);
+    const t = cyl(0.5, 0.5, 1.6, mat("#d8d4c8", "paint"));
+    t.rotation.x = Math.PI / 2;
+    t.position.set(1.1, 12.2, -1.4);
+    g.add(t);
+  }
+  if (kind === "hst") {
+    const h = hubbleModel({ arrays: false });
+    h.position.set(0, 14.3, -0.05);
+    g.add(h);
+  }
+  if (kind === "mplm") {
+    const c = cyl(2.25, 2.25, 6.4, mat("#e7e5df", "paint"), 32);
+    c.position.set(0, 8.2, -0.05);
+    g.add(c);
+    const cap = cyl(2.25, 1.1, 0.9, mat("#d5d3cc", "paint"), 32);
+    cap.position.set(0, 14.6, -0.05);
+    g.add(cap);
+    const cap2 = cyl(1.1, 2.25, 0.6, mat("#d5d3cc", "paint"), 32);
+    cap2.position.set(0, 7.6, -0.05);
+    g.add(cap2);
+  }
+  if (flags.ods) {
+    // orbiter docking system: external airlock with the docking mechanism on top, at the front of the bay
+    const al = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.0, 1.0, 2.9, 24),
+      mat("#e9e7e1", "paint"),
+    );
+    al.rotation.x = Math.PI / 2;
+    al.position.set(0, 21.5, -0.65);
+    g.add(al);
+    const ring = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.85, 0.8, 24),
+      mat("#a6abb1", "metal"),
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(0, 21.5, 1.2);
+    g.add(ring);
+    const tr = new THREE.Mesh(
+      new THREE.BoxGeometry(4.6, 2.4, 0.2),
+      mat("#c4c8cc", "metal"),
+    );
+    tr.position.set(0, 21.5, 0.75);
+    g.add(tr);
+  }
+  if (flags.obss) {
+    const b = cyl(0.2, 0.2, 15.2, mat("#d8d6cf", "paint"), 10);
+    b.position.set(B.wall - 0.22, 6.9, B.hz + 0.25);
+    g.add(b);
+  } // the boom on the starboard sill
+  return g;
+}
+// Each flight's orbiter in its own markings. The scan is Discovery as she was retired, in the markings of 1998 on; for the
+// orbiters of the app's flights tools/livery repaints its colour map as they flew them: Columbia in 1981 (the name on the
+// payload bay doors, "USA" on the right wing, a flag on the left, the black chines), Discovery in 1990 (the NASA logotype
+// on the wing and the doors, "USA" and a flag on the left wing, no insignia), Atlantis in 2011 (the scan's scheme, her name).
+const ORBITER_LIVERY = {
+  "OV-102": "columbia-1981",
+  "OV-103": "discovery-1990",
+  "OV-104": "atlantis-2011",
+};
+const LIVERIES = {};
+let SCAN_MAT = null; // (the scan's own material, which a livery replaces)
+function orbiterLivery(id) {
+  // a promise of the scan's material with this orbiter's colour map (null: keep the scan's own)
+  const key = ORBITER_LIVERY[id];
+  if (!key) return Promise.resolve(null);
+  if (!LIVERIES[key])
+    LIVERIES[key] = detailFile("orbiter").then(
+      (P) =>
+        new Promise((ok) => {
+          let base = null;
+          if (P && P.body)
+            P.body.traverse((o) => {
+              if (
+                !base &&
+                o.isMesh &&
+                o.material &&
+                o.material.map &&
+                o.material.name === "default"
+              )
+                base = o.material;
+            });
+          if (!base) return ok(null);
+          SCAN_MAT = base;
+          const done = (t) => {
+            const b = base.map;
+            t.flipY = false;
+            t.colorSpace = b.colorSpace;
+            t.wrapS = b.wrapS;
+            t.wrapT = b.wrapT;
+            t.magFilter = b.magFilter;
+            t.minFilter = b.minFilter;
+            t.anisotropy = b.anisotropy;
+            t.needsUpdate = true;
+            const m = base.clone();
+            m.map = t;
+            m.userData.livery = key;
+            ok(m);
+          };
+          const file = ASSET("orbiter-" + key + ".webp"),
+            fail = () => {
+              console.warn(
+                `Livery ${key} could not be loaded; the orbiter keeps the scan's markings.`,
+              );
+              ok(null);
+            };
+          // as the glTF loader reads the scan's own maps: decoded off the main thread where the browser can, not flipped
+          const safari = /^((?!chrome|android).)*safari/i.test(
+            navigator.userAgent,
+          );
+          if (typeof createImageBitmap === "function" && !safari)
+            new THREE.ImageBitmapLoader()
+              .setOptions({ premultiplyAlpha: "none" })
+              .load(
+                file,
+                (bmp) => done(new THREE.Texture(bmp)),
+                undefined,
+                fail,
+              );
+          else new THREE.TextureLoader().load(file, done, undefined, fail);
+        }),
+    );
+  return LIVERIES[key];
+}
+// the scan's parts in a model take the livery's material (when it has arrived)
+function wearLivery(g, id) {
+  orbiterLivery(id).then((m) => {
+    if (m)
+      g.traverse((o) => {
+        if (o.isMesh && o.material === SCAN_MAT) o.material = m;
+      });
+  });
+}
+// The orbiter: the scan's body, doors (swung open 175.5° in orbit) and landing gear, with the payload bay's lining, the robot
+// arm and the payloads; the built-in model until the scan arrives (or if it cannot be loaded).
 function buildOrbiter(flags = {}) {
   const fb = orbiterBuiltIn(flags),
     open = flags.bay === "open";
+  fb.userData.wingtips = [
+    [-11.9, 2.3, -2.5],
+    [11.9, 2.3, -2.5],
+  ]; // the wing tips' trailing corners in the orbiter's frame (the wing lies low on the fuselage, 2.45 m below the axis), for the vortex trails of the glide home (app/49_contrail.js)
   const g = detailPart("orbiter", "body", fb, {
     extra: (d) => {
       const P = DETAIL.ready.orbiter,
@@ -201,146 +346,3 @@ function buildShuttleStack(L, c) {
 // the US modules. Drawn with NASA's model (assets/iss.glb: the IGOAL lab's model set back to 2011 by tools/models); the
 // built-in one below stands in while it loads.
 const ISS_DOCK = [0, 21.5, 0]; // m, PMA-2 docking interface
-function issModel(flags = {}) {
-  return detailPart("iss", "iss", issBuiltIn(flags), {
-    extra: (g) => {
-      if (flags.mplm) g.add(issMplm());
-    },
-  });
-}
-// the logistics module (Raffaello on STS-135) on Harmony's nadir port
-function issMplm() {
-  const g = new THREE.Group(),
-    m = mat("#e7e5df", "paint");
-  const c = cyl(2.25, 2.25, 4.9, m, 32);
-  c.position.y = -4.9 / 2;
-  g.add(c);
-  const a = cyl(2.25, 1.1, 0.8, mat("#d5d3cc", "paint"), 32);
-  a.position.y = 2.45;
-  g.add(a); // the berthing end, up against Harmony
-  const b = cyl(1.6, 2.25, 0.6, mat("#d5d3cc", "paint"), 32);
-  b.position.y = -3.05;
-  g.add(b);
-  g.rotation.x = Math.PI / 2;
-  g.position.set(0, 15.0, -2.2 - 3.25);
-  return g;
-}
-function issBuiltIn(flags = {}) {
-  const g = new THREE.Group(),
-    white = mat("#e9e8e3", "paint"),
-    metal = mat("#b8bcc1", "metal"),
-    arr = mat("#a77a3a", "solar"),
-    rad = mat("#f2f2ee", "paint", { side: THREE.DoubleSide });
-  const yT = 7.3; // the integrated truss sits on top of the Destiny laboratory
-  const T = new THREE.Mesh(new THREE.BoxGeometry(109, 3.6, 3.6), metal);
-  T.position.set(0, yT, 5.6);
-  g.add(T);
-  for (const s of [-1, 1])
-    for (const x0 of [33, 46])
-      for (const dz of [-1, 1]) {
-        const w = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.08, 34), arr);
-        w.position.set(s * x0, yT, 5.6 + dz * 19.5);
-        g.add(w); // solar array wings (each pair 73 m tip to tip)
-        const mast = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.25, 34, 6),
-          metal,
-        );
-        mast.rotation.x = Math.PI / 2;
-        mast.position.set(s * x0, yT - 0.2, 5.6 + dz * 19.5);
-        g.add(mast);
-      }
-  for (const s of [-1, 1])
-    for (let k = 0; k < 3; k++) {
-      const r = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 13), rad);
-      r.position.set(s * (14 + k * 3.4), yT, 5.6 - 8.5);
-      g.add(r);
-    } // radiators
-  const mod = (r, len, y, x = 0, z = 0, rx = 0, rz = 0, m = white) => {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 24), m);
-    c.position.set(x, y, z);
-    c.rotation.set(rx, 0, rz);
-    g.add(c);
-    return c;
-  };
-  mod(2.2, 7.2, 15.1); // Harmony
-  mod(1.1, 2.8, 20.1, 0, 0, 0, 0, metal); // PMA-2
-  mod(2.2, 8.5, 7.3); // Destiny
-  mod(2.2, 5.5, 0.6); // Unity
-  mod(2.05, 12.6, -8.6); // Zarya
-  mod(2.1, 13.1, -21.5); // Zvezda
-  for (const s of [-1, 1]) {
-    const w = new THREE.Mesh(
-      new THREE.BoxGeometry(10.5, 0.06, 3.2),
-      mat("#1d2a4a", "solar"),
-    );
-    w.position.set(s * 7.4, -24.5, 0);
-    g.add(w);
-  }
-  mod(2.25, 6.9, 15.1, 5.6, 0, 0, Math.PI / 2); // Columbus (starboard)
-  mod(2.2, 11.2, 15.1, -7.8, 0, 0, Math.PI / 2); // Kibo (port)
-  mod(2.2, 6.7, 0.6, -5.6, 0, 0, Math.PI / 2); // Tranquility
-  if (flags.mplm) mod(2.25, 6.6, 15.1, 0, -2.2 - 3.3, Math.PI / 2, 0); // the logistics module on Harmony's nadir port
-  g.userData.len = 60;
-  g.userData.yc0 = 0;
-  return g;
-}
-
-// ==== 33_mars2020.js
-// ============================================================================
-// Mars 2020's flight system apart from the rover (metres): the cruise stage, the aeroshell (heat shield and backshell) and
-// the descent stage, the "sky crane". Mars 2020 was built to Mars Science Laboratory's drawings, so the shapes are MSL's.
-// Axes: +Y along the axis from the heat shield's nose (Y = 0) toward the cruise stage; the heat shield leads into the air.
-// The parts' proportions and layout follow NASA's exploded drawing of the spacecraft (PIA24128) and photographs of it
-// being put together (PIA23887, PIA23886; MSL's descent stage, PIA11425).
-//
-// Aeroshell (MSL entry papers: Edquist 2009, Johansen 2011, Schoenenberger 2013): 4.5 m across. The heat shield is a 70°
-// sphere-cone (nose radius 1.125 m) rounded at its shoulder (radius 0.126 m), 0.835 m from the nose to its widest point,
-// covered in about a hundred PICA tiles (dark) with filled gaps between them. The backshell, painted white, is two cones
-// (half-angles 36.9° and 59.7°, meeting at the 3.04 m "hip") up to the backshell interface plate (1.31 m across); on it the
-// 29° parachute closeout cone and its lid, which the parachute is fired through, 3.0 m from the nose. A row of round ports
-// and an access panel on the lower cone, a gold-rimmed port on the upper cone, bolts round the interface plate.
-// Cruise stage: a disc as wide as the aeroshell, its outward face covered in solar cells, bolted to the interface plate
-// round the parachute cone; ten radiator panels hang from its rim toward the aeroshell, so that it looks like a drum. Inside
-// it: two propellant tanks, the cooling loop's pipes, electronics in gold blankets; two clusters of four thrusters on
-// struts below the rim, on opposite sides; the medium-gain antenna's horn in a gap between two radiators. The cruise stage
-// and the aeroshell together are 3.0 m tall (MSL launch press kit).
-// Descent stage: a tapered octagonal frame, wider at its foot, holding three propellant tanks and two pressurant tanks in
-// blankets; below its centre a keel with the bridle device at its point; eight throttleable engines in pairs on outriggers
-// at the four diagonals, one of each pair canted 5° outboard and the other 22.5°; the radar's six antennas on a plate on one
-// side. The rover hangs under the keel with its wheels folded up beside its body until it is lowered on three bridles and
-// an umbilical, 6.4 m long (Perseverance's: Curiosity's were 7.5 m).
-// ============================================================================
-const M20 = { mats: {} };
-// the profile [r, y] of the aeroshell's outer surface, resampled evenly along its length (so a texture's rows follow it)
-function m20Resample(pts, n) {
-  const L = [0];
-  for (let i = 1; i < pts.length; i++)
-    L.push(
-      L[i - 1] +
-        Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]),
-    );
-  const out = [];
-  let j = 0;
-  for (let k = 0; k < n; k++) {
-    const s = (L[L.length - 1] * k) / (n - 1);
-    while (j < L.length - 2 && L[j + 1] < s) j++;
-    const f = (s - L[j]) / Math.max(L[j + 1] - L[j], 1e-9);
-    out.push([
-      pts[j][0] + (pts[j + 1][0] - pts[j][0]) * f,
-      pts[j][1] + (pts[j + 1][1] - pts[j][1]) * f,
-    ]);
-  }
-  out.len = L[L.length - 1];
-  out.at = (s) => {
-    let i = 0;
-    while (i < L.length - 2 && L[i + 1] < s) i++;
-    const f = (s - L[i]) / Math.max(L[i + 1] - L[i], 1e-9);
-    return [
-      pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f,
-      pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f,
-    ];
-  };
-  out.sOf = L;
-  return out;
-}
-// heat shield: nose sphere to its tangent cone (20° from the axis), the 70° cone, the shoulder round to the seal with the backshell

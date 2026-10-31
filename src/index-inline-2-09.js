@@ -1,5 +1,5 @@
 // index-inline-2 09 — line
-// Lines 2267-2425 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 2290-2452 of readable/index-inline-2.pretty.js (statement-aligned).
 function updateBodies(t, camDist) {
   const O = R.O;
   for (const name of BODY_LIST) {
@@ -121,7 +121,11 @@ function updateOrbits(t, show, camDist, frameMode) {
   }
   const mo = R.moonOrbit;
   mo.line.visible =
-    show && camDist > 3e4 && camDist < 5e7 && frameMode !== "emrot";
+    show &&
+    camDist > 3e4 &&
+    camDist < 5e7 &&
+    frameMode !== "emrot" &&
+    frameMode !== "serot";
   if (mo.line.visible) {
     if (mo.tBuilt == null || Math.abs(t - mo.tBuilt) > 0.5 * DAY) {
       const arr = mo.line.geometry.attributes.position.array;

@@ -1,5 +1,5 @@
 // index-inline-1 13 — math
-// Lines 4104-4363 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 4226-4485 of readable/index-inline-1.pretty.js (statement-aligned).
 function gcAngle(lat1, lon1, lat2, lon2) {
   const a = llToBF(lat1, lon1),
     b = llToBF(lat2, lon2);

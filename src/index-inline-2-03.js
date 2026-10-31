@@ -1,5 +1,5 @@
 // index-inline-2 03 — math
-// Lines 375-791 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 388-804 of readable/index-inline-2.pretty.js (statement-aligned).
 class MissionData {
   constructor(M, scn) {
     this.M = M;

@@ -1,5 +1,5 @@
 // index-inline-1 15 — ref
-// Lines 4678-5021 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 4800-5143 of readable/index-inline-1.pretty.js (statement-aligned).
 class SampleSeg {
   // samples: [{t, r, v, m, T, thrDir, D, ...extras}]
   constructor(ref, samples, meta = {}) {

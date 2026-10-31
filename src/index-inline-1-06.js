@@ -1,5 +1,5 @@
 // index-inline-1 06 — white
-// Lines 1416-2036 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 1422-2136 of readable/index-inline-1.pretty.js (statement-aligned).
 const LAUNCHERS = {
   saturnV: {
     name: "Saturn V",
@@ -135,7 +135,8 @@ const LAUNCHERS = {
           [5.5, 1.855, 0.35, C.white],
         ],
         eng: { n: 1, len: 3.6, r: 1.9, layout: "single" },
-      },
+        look: "slsBooster",
+      }, // look: drawn by hand (app/3b_launchers.js)
       {
         id: "Core",
         name: "Core stage (4 × RS-25)",
@@ -156,6 +157,7 @@ const LAUNCHERS = {
           [8.3, 4.2, 2.55, C.white],
         ],
         eng: { n: 4, len: 4.3, r: 1.2, layout: "square", spread: 2.0 },
+        look: "slsCore",
       },
       {
         id: "ICPS",
@@ -213,7 +215,8 @@ const LAUNCHERS = {
           [5.0, 1.675, 0.3, C.white],
         ],
         eng: { n: 2, len: 2.3, r: 0.75, layout: "pair", spread: 0.8 },
-      },
+        look: "lm5Booster",
+      }, // look: drawn by hand (app/3b_launchers.js)
       {
         id: "Core",
         name: "Core stage (2 × YF-77)",
@@ -228,6 +231,7 @@ const LAUNCHERS = {
         propMass: 158500,
         geom: [[33.2, 2.5, 2.5, C.white, { flag: "cn" }]],
         eng: { n: 2, len: 2.8, r: 0.9, layout: "pair", spread: 1.1 },
+        look: "lm5Core",
       },
       {
         id: "Stage 2",
@@ -435,7 +439,8 @@ const LAUNCHERS = {
           [3.2, 1.83, 0.25, C.white],
         ],
         eng: { n: 9, len: 1.4, r: 0.45, layout: "octaweb", spread: 1.25 },
-      },
+        look: "falconSide",
+      }, // look: drawn by hand (app/3b_launchers.js)
       {
         id: "Center core",
         name: "Center core (9 × Merlin 1D)",
@@ -456,6 +461,7 @@ const LAUNCHERS = {
           [4.2, 1.83, 1.83, C.black],
         ],
         eng: { n: 9, len: 1.4, r: 0.45, layout: "octaweb", spread: 1.25 },
+        look: "falconCentre",
       },
       {
         id: "Stage 2",
@@ -506,12 +512,12 @@ const LAUNCHERS = {
         maxG: 3.5,
         minThr: 0.4,
         geom: [
-          [69.0, 4.5, 4.5, C.steel, { chines: true }],
+          [69.0, 4.5, 4.5, C.steel],
           [2.0, 4.5, 4.5, C.dark],
         ],
         eng: { n: 33, len: 2.5, r: 0.65, layout: "raptor33", spread: 4.0 },
-        gridfins: true,
-      },
+        look: "starshipBooster",
+      }, // look: drawn by hand (app/3a_starship.js)
       {
         id: "Ship",
         name: "Ship (3 Raptor + 3 Raptor Vacuum)",
@@ -526,12 +532,12 @@ const LAUNCHERS = {
         propMass: 1500000,
         restart: true,
         geom: [
-          [44.0, 4.5, 4.5, C.steel, { tiles: true }],
-          [8.1, 4.5, 0.6, C.steel, { tiles: true }],
+          [35.1, 4.5, 4.5, C.steel],
+          [17.0, 4.5, 0.6, C.steel],
         ],
         eng: { n: 6, len: 2.8, r: 0.9, layout: "ship6", spread: 2.2 },
-        flaps: true,
-      },
+        look: "starshipShip",
+      }, // (the nose is a 17-m ogive, drawn in the look)
     ],
     jettison: [],
     payloadFairing: null,
@@ -610,6 +616,94 @@ const LAUNCHERS = {
     ],
     payloadFairing: { len: 10.75, r: 2.5, color: C.white },
     ascent: { hp: 170, ha: 36500, vert: 10, kickGuess: 2.5 },
+  },
+  ariane5ECA: {
+    // Ariane 5 ECA as it launched JWST (VA256): two solid boosters (EAP) beside the cryogenic core (EPC, one Vulcain 2) and
+    // the cryogenic upper stage (ESC-A, one HM7B) that injects the payload directly toward L2. Figures from Arianespace's
+    // user manual; the booster thrust curve is approximate.
+    name: "Ariane 5 ECA",
+    org: "Arianespace / ESA (Europe)",
+    years: "2002–2023",
+    height: 53.0,
+    diameter: 5.4,
+    blurb:
+      "Europe’s heavy launcher: two solid boosters and a hydrogen core lit together, a cryogenic upper stage for the injection. Launched the James Webb Space Telescope on its final year of service.",
+    stages: [
+      {
+        id: "EAP",
+        name: "2 × solid boosters (EAP, P241)",
+        prop: "solid",
+        engine: "P241",
+        n: 2,
+        thrustSL: 2 * 4800e3,
+        thrustVac: 2 * 5250e3,
+        ispSL: 262,
+        ispVac: 275,
+        dry: 2 * 33000,
+        propMass: 2 * 237000,
+        parallel: true, // (the mean over the 130-s burn; the curve puts the 7 000-kN peak at 20 s)
+        curve: [
+          [0, 1.0],
+          [20, 1.08],
+          [60, 0.95],
+          [100, 0.9],
+          [120, 0.55],
+          [130, 0.1],
+          [135, 0.02],
+        ],
+        booster: { count: 2, offset: 4.67 },
+        geom: [
+          [27.0, 1.525, 1.525, C.white],
+          [4.2, 1.525, 0.35, C.white],
+        ],
+        eng: { n: 1, len: 3.0, r: 1.4, layout: "single" },
+        look: "ariane5EAP",
+        detail: "ariane5",
+      }, // detail: the published model (tools/models); look: the hand drawing until it arrives (app/3b_launchers.js)
+      {
+        id: "EPC",
+        name: "Cryogenic core stage (EPC, Vulcain 2)",
+        prop: "hydrolox",
+        engine: "Vulcain 2",
+        n: 1,
+        thrustSL: 960e3,
+        thrustVac: 1390e3,
+        ispSL: 318,
+        ispVac: 432,
+        dry: 14700,
+        propMass: 173000,
+        maxG: 4.5,
+        minThr: 1,
+        geom: [[30.5, 2.7, 2.7, C.cream]],
+        eng: { n: 1, len: 3.4, r: 1.0, layout: "single" },
+        look: "ariane5EPC",
+        detail: "ariane5",
+      },
+      {
+        id: "ESC-A",
+        name: "Cryogenic upper stage (ESC-A, HM7B)",
+        prop: "hydrolox",
+        engine: "HM7B",
+        n: 1,
+        thrustSL: 0,
+        thrustVac: 67e3,
+        ispSL: 300,
+        ispVac: 446,
+        dry: 4540,
+        propMass: 14900,
+        restart: true, // (the HM7B lights once; the parking orbit and injection here stand in for its single long burn)
+        geom: [[4.7, 2.7, 2.7, C.white]],
+        eng: { n: 1, len: 2.0, r: 0.5, layout: "single" },
+        look: "ariane5ESC",
+        detail: "ariane5",
+      },
+    ],
+    jettison: [
+      { name: "Payload fairing", mass: 2675, alt: 110, part: "fairing" },
+    ],
+    payloadFairing: { len: 17.0, r: 2.7, color: C.white, detail: "ariane5" },
+    ascent: { hp: 170, ha: 170, vert: 6, kickGuess: 2.0 },
+    roll: { padAz: 0, t: [10, 20] },
   },
 };
 

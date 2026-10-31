@@ -1,5 +1,5 @@
 // index-inline-1 18 — mode
-// Lines 5702-5966 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 5824-6088 of readable/index-inline-1.pretty.js (statement-aligned).
 function seleno(t, y) {
   const m = moonGeo(t);
   return {

@@ -1,200 +1,320 @@
-// index-inline-2 32 — twc
-// Lines 8976-9173 of readable/index-inline-2.pretty.js (statement-aligned).
-function twHeatShieldMat() {
-  return twMat("hs", () => {
-    const prof = m20Resample(twHeatShieldProfile(), 160),
-      L = prof.len,
-      W = 2048,
-      H = 512;
-    let s = 13;
-    const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-    const map = m20Canvas(W, H, (g) => {
-      g.fillStyle = "#332c27";
-      g.fillRect(0, 0, W, H);
-      for (let i = 0; i < 9000; i++) {
-        g.fillStyle =
-          rnd() > 0.5 ? "rgba(255,230,200,0.035)" : "rgba(0,0,0,0.07)";
-        g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 7, 1 + rnd() * 3);
-      }
-      g.strokeStyle = "rgba(120,104,90,0.28)";
-      g.lineWidth = 1.5;
-      for (let k = 1; k < 7; k++) {
-        const y = ((0.18 + k * 0.24) / L) * H;
-        g.beginPath();
-        g.moveTo(0, y);
-        g.lineTo(W, y);
-        g.stroke();
-      }
-      for (let k = 0; k < 36; k++) {
-        const x = (k / 36) * W;
-        g.beginPath();
-        g.moveTo(x, (0.4 / L) * H);
-        g.lineTo(x, H);
-        g.stroke();
-      }
-    });
-    return new THREE.MeshStandardMaterial({
-      map,
-      roughness: 0.85,
-      metalness: 0.04,
-    });
-  });
-}
-// the backshell's white coat: the seal's dark rim and its bolts, the hip's seam, eight thruster ports below the hip, round
-// ports and two gold-rimmed sensor windows on the upper cone, the ring it sits on the orbiter by, the canister and its lid
-function twBackshellMat() {
-  return twMat("bs", () => {
-    const prof = m20Resample(twBackshellProfile(), 160),
-      L = prof.len,
-      W = 2048,
-      H = 1024,
-      S = (x) => (x / L) * H;
-    const sHip = Math.hypot(TWC.seal[0] - TWC.hip[0], TWC.seal[1] - TWC.hip[1]),
-      sBip =
-        sHip + Math.hypot(TWC.hip[0] - TWC.bip[0], TWC.hip[1] - TWC.bip[1]);
-    const disc = (g, a, sp, rho, fill, rim) => {
-      const r = prof.at(sp)[0],
-        ex = (rho / (TAU * r)) * W,
-        ey = (rho / L) * H,
-        x = ((((a / 360) % 1) + 1) % 1) * W;
-      for (const dx of [0, -W, W]) {
-        g.beginPath();
-        g.ellipse(x + dx, S(sp), ex, ey, 0, 0, TAU);
-        g.fillStyle = fill;
-        g.fill();
-        if (rim) {
-          g.lineWidth = 3;
-          g.strokeStyle = rim;
-          g.stroke();
-        }
-      }
-    };
-    const dots = (g, sp, step, col) => {
-      const n = Math.round((TAU * prof.at(sp)[0]) / step);
-      g.fillStyle = col;
-      for (let k = 0; k < n; k++) {
-        g.beginPath();
-        g.arc(((k + 0.5) / n) * W, S(sp), 1.6, 0, TAU);
-        g.fill();
-      }
-    };
-    let s = 17;
-    const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-    const map = m20Canvas(W, H, (g) => {
-      g.fillStyle = "#dedcd5";
-      g.fillRect(0, 0, W, H);
-      for (let i = 0; i < 5000; i++) {
-        g.fillStyle =
-          rnd() > 0.5 ? "rgba(255,255,255,0.05)" : "rgba(90,85,78,0.04)";
-        g.fillRect(rnd() * W, rnd() * S(sBip), 3 + rnd() * 10, 2 + rnd() * 5);
-      }
-      g.fillStyle = "#34353a";
-      g.fillRect(0, 0, W, S(0.03));
-      dots(g, 0.016, 0.25, "#9a9ca0");
-      g.strokeStyle = "rgba(140,138,130,0.5)";
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(0, S(sHip));
-      g.lineTo(W, S(sHip));
-      g.stroke();
-      for (let k = 0; k < 12; k++) {
-        g.beginPath();
-        g.moveTo((k / 12) * W, S(0.03));
-        g.lineTo((k / 12) * W, S(sHip));
-        g.strokeStyle = "rgba(150,147,140,0.35)";
-        g.lineWidth = 2;
-        g.stroke();
-      } // the lower cone's panels
-      for (let k = 0; k < 8; k++)
-        disc(g, 22.5 + k * 45, sHip - 0.18, 0.06, "#2c2d31", "#8d8f93"); // thruster ports
-      for (const a of [70, 160, 250, 340])
-        disc(g, a, sHip - 0.45, 0.07, "#bdbcb7", "#8f8e89");
-      for (const a of [120, 300]) {
-        disc(g, a, sHip + 0.4, 0.13, "#c49a42");
-        disc(g, a, sHip + 0.4, 0.08, "#3c3c40");
-      }
-      g.fillStyle = "#b3b6ba";
-      g.fillRect(0, S(sBip) - 5, W, 10);
-      dots(g, sBip + 0.03, 0.06, "rgba(110,108,102,0.9)");
-      g.fillStyle = "#e8e6df";
-      g.fillRect(0, S(sBip) + 5, W, H - S(sBip) - 5);
-    });
-    return new THREE.MeshStandardMaterial({
-      map,
-      roughness: 0.6,
-      metalness: 0.03,
-    });
-  });
-}
-function twHeatShield() {
+// index-inline-2 32 — add
+// Lines 8767-9084 of readable/index-inline-2.pretty.js (statement-aligned).
+function twOrbiter(flags = {}) {
   const g = new THREE.Group(),
-    prof = m20Resample(twHeatShieldProfile(), 60);
-  g.add(lathe(prof, twHeatShieldMat(), 96));
-  const inner = m20Inner(prof, 0.05);
-  g.add(lathe(inner, mat("#4b4842", "dark", { side: THREE.DoubleSide }), 72));
-  const rim = new THREE.Mesh(
-    new THREE.RingGeometry(inner[0][0], TWC.seal[0], 72, 1),
-    mat("#57504a", "dark", { side: THREE.DoubleSide }),
-  );
-  rim.rotation.x = -Math.PI / 2;
-  rim.position.y = TWC.seal[1];
-  g.add(rim);
-  g.userData.len = TWC.seal[1];
-  return g;
-}
-// the trim wing: a plate on a hinge just above the seal (+Z); folded down onto the lower cone, or swung out into the air
-function twTrimWing() {
-  const h = new THREE.Group();
-  h.position.set(0, 0.69, 1.71);
-  const p = new THREE.Mesh(
-    new THREE.BoxGeometry(0.56, 0.72, 0.035),
-    mat("#d4d3cd", "paint"),
-  );
-  p.geometry.translate(0, 0.36, 0.018);
-  h.add(p);
-  for (const x of [-0.2, 0.2]) {
-    const r = box(0.03, 0.66, 0.04, mat("#a9acb0", "metal"));
-    r.position.set(x, 0.03, 0.04);
-    h.add(r);
-  }
-  const hinge = cyl(0.03, 0.03, 0.6, mat("#8c9197", "metal"), 10);
-  hinge.rotation.z = Math.PI / 2;
-  hinge.position.x = 0.3;
-  h.add(hinge);
-  h.userData.set = (f) => {
-    h.rotation.x = twLerp(-25 * DEG, 50 * DEG, f);
+    { R, H } = TWO,
+    rf = R * Math.cos(Math.PI / 6);
+  const gold = foilMat("gold", 2),
+    white = mat("#e8e8e3", "paint"),
+    alu = mat("#b9bec4", "metal"),
+    dark = mat("#2c2e33", "dark"),
+    grey = mat("#8c9197", "metal");
+  const face = (k, y = H / 2, out = 0) => {
+    const a = (30 + 60 * k) * DEG;
+    return { a, p: [Math.sin(a) * (rf + out), y, Math.cos(a) * (rf + out)] };
   };
-  return h;
-}
-function twBackshell(trim) {
-  const g = new THREE.Group(),
-    prof = m20Resample(twBackshellProfile(), 70);
-  g.add(lathe(prof, twBackshellMat(), 96));
+  g.add(twPrismSides(6, R, 0, H, 30 * DEG, () => gold));
   g.add(
-    lathe(
-      m20Inner(m20Resample([TWC.seal, TWC.hip, TWC.bip], 30), 0.05),
-      mat("#3a3c40", "metal", { side: THREE.DoubleSide }),
-      64,
+    twDeck(
+      6,
+      R,
+      H,
+      30 * DEG,
+      mat("#d3d6da", "metal", { side: THREE.DoubleSide }),
+      TWO.ring,
     ),
   );
-  const plate = new THREE.Mesh(
-    new THREE.CircleGeometry(0.6, 32),
-    mat("#3a3c40", "metal", { side: THREE.DoubleSide }),
+  g.add(
+    twDeck(
+      6,
+      R,
+      0,
+      30 * DEG,
+      mat("#5d6066", "metal", { side: THREE.DoubleSide }),
+      0.6,
+      true,
+    ),
   );
-  plate.rotation.x = Math.PI / 2;
-  plate.position.y = TWC.bip[1] - 0.04;
-  g.add(plate);
-  const tw = twTrimWing();
-  tw.userData.set(trim);
-  g.add(tw);
-  g.userData.trim = tw;
-  g.userData.len = TWC.top;
+  // radiators (white, inside a gold border) on the faces at 30° and 150°; the flag at the top of the 30° face
+  for (const k of [0, 2]) {
+    const { a, p } = face(k, H / 2 - 0.1, 0.004);
+    const r = new THREE.Mesh(
+      new THREE.PlaneGeometry(R - 0.22, H - 0.75),
+      white,
+    );
+    r.position.set(...p);
+    r.rotation.y = a;
+    g.add(r);
+  }
+  {
+    const { a, p } = face(0, H - 0.28, 0.006);
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(0.54, 0.36), cnFlagMat());
+    f.position.set(...p);
+    f.rotation.y = a;
+    g.add(f);
+  }
+  // the central cone: its ring on the deck, the cone going down inside
+  const ring = cyl(TWO.ring + 0.05, TWO.ring, 0.06, alu, 40);
+  ring.position.y = H;
+  g.add(ring);
+  const cone = cyl(
+    0.55,
+    TWO.ring,
+    0.9,
+    mat("#55585e", "metal", { side: THREE.DoubleSide }),
+    40,
+    true,
+  );
+  cone.position.y = H - 0.9;
+  g.add(cone);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(0.56, 32), dark);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = H - 0.88;
+  g.add(floor);
+  for (let k = 0; k < 6; k++) {
+    const b = box(0.1, 0.07, 0.12, mat("#c9a04a", "gold"));
+    b.position.set(...m20Polar(TWO.ring + 0.02, (k * TAU) / 6, H + 0.06));
+    b.rotation.y = (k * TAU) / 6;
+    g.add(b);
+  } // the separation fittings
+  // the launch adapter's ring and the main engine inside it; thruster pairs at the six lower corners
+  const lv = cyl(0.62, 0.6, 0.12, alu, 40, true);
+  lv.position.y = -0.12;
+  g.add(lv);
+  const valve = cyl(0.13, 0.13, 0.16, grey, 16);
+  valve.position.y = -0.16;
+  g.add(valve);
+  const eng = bell(
+    TWO.eng,
+    0.22,
+    mat("#3c3e42", "metal", { side: THREE.DoubleSide }),
+  );
+  eng.position.y = -TWO.eng;
+  g.add(eng);
+  for (let k = 0; k < 6; k++) {
+    const a = (k * TAU) / 6,
+      pod = new THREE.Group();
+    pod.position.set(...m20Polar(R - 0.12, a, 0.04));
+    pod.rotation.y = a;
+    g.add(pod);
+    pod.add(box(0.16, 0.08, 0.12, grey));
+    for (const s of [-1, 1]) {
+      const n = bell(
+        0.1,
+        0.035,
+        mat("#3a3b3f", "metal", { side: THREE.DoubleSide }),
+      );
+      const e = new THREE.Group();
+      e.position.set(s * 0.05, 0, 0.03);
+      e.rotation.x = 0.5;
+      e.add(n);
+      n.position.y = -0.1;
+      pod.add(e);
+    }
+  }
+  // star trackers and low-gain antennas on the deck
+  for (const [a, r] of [
+    [200, 1.0],
+    [235, 1.0],
+  ]) {
+    const st = box(0.14, 0.12, 0.14, dark);
+    st.position.set(...m20Polar(r, a * DEG, H));
+    g.add(st);
+    const sh = cyl(
+      0.05,
+      0.08,
+      0.1,
+      mat("#1c1d20", "dark", { side: THREE.DoubleSide }),
+      14,
+      true,
+    );
+    sh.position.set(...m20Polar(r, a * DEG, H + 0.12));
+    g.add(sh);
+  }
+  for (const [a, y] of [
+    [120, H],
+    [300, H],
+  ]) {
+    const l = cyl(0.07, 0.03, 0.16, mat("#e9e7e1", "paint"), 14);
+    l.position.set(...m20Polar(1.05, a * DEG, y));
+    g.add(l);
+  }
+  // the high-resolution camera on the 150° face, looking down; the medium-resolution camera beside it
+  {
+    const { a, p } = face(2, 0.75, 0.3);
+    const c = cyl(0.24, 0.24, 0.8, mat("#e4e3de", "paint"), 24);
+    c.position.set(p[0], 0.35, p[2]);
+    g.add(c);
+    const hood = cyl(
+      0.25,
+      0.25,
+      0.22,
+      mat("#1e1f22", "dark", { side: THREE.DoubleSide }),
+      24,
+      true,
+    );
+    hood.position.set(p[0], 0.13, p[2]);
+    g.add(hood);
+    const br = box(0.3, 0.5, 0.12, grey);
+    br.position.set(Math.sin(a) * (rf + 0.06), 0.5, Math.cos(a) * (rf + 0.06));
+    br.rotation.y = a;
+    g.add(br);
+    const m = box(0.16, 0.18, 0.16, dark);
+    m.position.set(...face(2, 0, 0.12).p);
+    m.position.y = 1.3;
+    g.add(m);
+  }
+  // the solar wings: a yoke and three panels (1.3 × 2.0 m) on hinges, folded like an accordion against the face when stowed
+  const wings = [];
+  for (const s of [1, -1]) {
+    const w = new THREE.Group();
+    w.position.set(s * rf, H / 2, 0);
+    if (s < 0) w.rotation.z = Math.PI;
+    g.add(w);
+    const yoke = [twBarMesh(0.022, alu), twBarMesh(0.022, alu)];
+    w.add(...yoke);
+    const root = box(0.12, 0.3, 0.12, grey);
+    root.position.set(0.04, -0.15, 0);
+    w.add(root);
+    const h0 = new THREE.Group();
+    w.add(h0);
+    const hs = [h0];
+    let par = h0;
+    for (let i = 0; i < 3; i++) {
+      par.add(twPanel(1.3, 2.0, 6, 9));
+      if (i < 2) {
+        const h = new THREE.Group();
+        h.position.set(1.3, 0, i ? -0.035 : 0.035);
+        par.add(h);
+        hs.push(h);
+        par = h;
+      }
+    }
+    wings.push({ yoke, hs });
+  }
+  // the high-gain antenna: a dish 2.5 m across with its subreflector, on a boom from the +Z corner
+  const hga = new THREE.Group();
+  g.add(hga);
+  const dish = twDish(
+    1.25,
+    0.28,
+    mat("#efeee9", "paint", { side: THREE.DoubleSide }),
+    48,
+  );
+  dish.rotation.x = Math.PI / 2;
+  hga.add(dish);
+  const hub = cyl(0.12, 0.12, 0.2, grey, 16);
+  hub.rotation.x = Math.PI / 2;
+  hub.position.z = -0.12;
+  hga.add(hub);
+  const sub = cyl(0.12, 0.12, 0.03, mat("#d9d8d2", "paint"), 20);
+  sub.rotation.x = Math.PI / 2;
+  sub.position.z = 0.55;
+  hga.add(sub);
+  for (let k = 0; k < 4; k++)
+    hga.add(
+      m20Bar(
+        [
+          Math.sin((k * TAU) / 4 + 0.785) * 0.85,
+          Math.cos((k * TAU) / 4 + 0.785) * 0.85,
+          0.15,
+        ],
+        [
+          Math.sin((k * TAU) / 4 + 0.785) * 0.1,
+          Math.cos((k * TAU) / 4 + 0.785) * 0.1,
+          0.54,
+        ],
+        0.012,
+        alu,
+      ),
+    );
+  const feed = cyl(0.06, 0.04, 0.3, grey, 12);
+  feed.rotation.x = Math.PI / 2;
+  feed.position.z = 0.02;
+  hga.add(feed);
+  const boom = twBarMesh(0.05, alu, 12);
+  g.add(boom);
+  // the magnetometer's boom on the 210° face
+  const mag = new THREE.Group();
+  mag.rotation.order = "YXZ";
+  {
+    const { a, p } = face(3, H - 0.15, 0.08);
+    mag.position.set(...p);
+    mag.rotation.y = a;
+    g.add(mag);
+  }
+  {
+    const b = cyl(0.025, 0.025, 2.2, alu, 8);
+    mag.add(b);
+    const sn = box(0.12, 0.1, 0.12, mat("#d7d6d0", "paint"));
+    sn.position.y = 2.2;
+    mag.add(sn);
+    const sn2 = box(0.08, 0.08, 0.08, mat("#c9a04a", "gold"));
+    sn2.position.y = 1.4;
+    mag.add(sn2);
+  }
+  // stowed (f = 0) → deployed (1): the wings open first, then the antenna swings out, then the magnetometer's boom
+  const pose = (f) => {
+    const fw = twPhase(f, 0, 0.5),
+      fa = twPhase(f, 0.45, 0.8),
+      fm = twPhase(f, 0.75, 1);
+    for (const { yoke, hs } of wings) {
+      const fu = twPhase(fw, 0, 0.35),
+        fo = twPhase(fw, 0.25, 1); // the stack swings off the face, then unfolds
+      hs[0].position.set(twLerp(0.14, 0.4, fu), 0, twLerp(0.65, 0, fu));
+      hs[0].rotation.y = twLerp(Math.PI / 2, 0, fo);
+      hs[1].rotation.y = twLerp(-Math.PI, 0, fo);
+      hs[2].rotation.y = twLerp(Math.PI, 0, fo);
+      const t0 = hs[0].position;
+      twSetBar(yoke[0], [0, 0.55, 0], [t0.x, 0.25, t0.z]);
+      twSetBar(yoke[1], [0, -0.55, 0], [t0.x, -0.25, t0.z]);
+    }
+    const v = [0, twLerp(1.1, 1.35, fa), twLerp(R + 0.42, R + 1.05, fa)];
+    hga.position.set(...v);
+    hga.rotation.x = -twLerp(0, 0.45, fa);
+    twSetBar(boom, [0, 1.0, R - 0.1], [0, v[1] - 0.05, v[2] - 0.14]);
+    mag.rotation.x = twLerp(Math.PI, Math.PI / 2 - 0.15, fm);
+  };
+  if (flags.deployT != null)
+    g.userData.animate = (t) =>
+      pose(clamp((t - flags.deployT - 30) / 300, 0, 1));
+  pose(flags.stowed || flags.deployT != null ? 0 : 1);
+  g.userData.len = H;
+  g.userData.mounts = [{ y: -TWO.eng, r: 0.22, tag: "ORB" }];
   return g;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Zhurong (y = 0 under its wheels, +Z forward): its body 1.3 m long, its deck white with the two round windows; six wheels
-// 0.3 m across, each on its own steering post, on the active suspension that lifts and lowers the body; four solar wings
-// hinged along the deck's sides that open like a butterfly's; the mast with the camera head at the front, 1.85 m up; the
-// high-gain dish at the back. pose({ lift, wings, mast, dish }) from 0 (folded for the landing, the body let down) to 1.
-const TWZ = { WR: 0.15, WX: 0.55, WZ: [0.62, 0, -0.62] };
+// The entry capsule (y = 0 at the heat shield's nose): the heat shield, a 70° sphere-cone 3.4 m across (nose radius
+// 0.85 m, rounded at its shoulder); the backshell, two cones (25° and 45° from the axis) up to the ring where it sits on
+// the orbiter, the parachute's canister and its lid above that, 2.5 m from the nose; the trim wing hinged above the seal.
+const TWC = {
+  R: 1.7,
+  seal: [1.681, 0.671],
+  hip: [1.3, 1.49],
+  bip: [0.62, 2.17],
+  can: [0.5, 2.42],
+  top: 2.5,
+};
+function twHeatShieldProfile() {
+  const p = [],
+    Rn = 0.85;
+  for (let a = 0; a <= 20; a += 2)
+    p.push([Rn * Math.sin(a * DEG), Rn * (1 - Math.cos(a * DEG))]);
+  for (let a = -70; a <= 40; a += 6)
+    p.push([1.62 + 0.08 * Math.cos(a * DEG), 0.62 + 0.08 * Math.sin(a * DEG)]); // the shoulder (centre r 1.62, y 0.62)
+  p.push(TWC.seal);
+  return p;
+}
+function twBackshellProfile() {
+  const p = [TWC.seal, TWC.hip, TWC.bip, [TWC.can[0], TWC.bip[1]], TWC.can];
+  for (let k = 1; k <= 5; k++) {
+    const a = ((k / 5) * Math.PI) / 2;
+    p.push([
+      TWC.can[0] * Math.cos(a),
+      TWC.can[1] + (TWC.top - TWC.can[1]) * Math.sin(a),
+    ]);
+  }
+  return p;
+}
+// the heat shield's ablator: dark grey-brown, a faint grid of the honeycomb's panels, a mottle

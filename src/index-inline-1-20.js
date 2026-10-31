@@ -1,5 +1,5 @@
 // index-inline-1 20 — cfg
-// Lines 7393-7741 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 7515-7863 of readable/index-inline-1.pretty.js (statement-aligned).
 const crewOf = (cfg) => (cfg.crew || 0) > 0;
 function finishReturn(
   M,

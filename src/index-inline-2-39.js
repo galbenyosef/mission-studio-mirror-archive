@@ -1,349 +1,211 @@
-// index-inline-2 39 — cfgl
-// Lines 10810-11156 of readable/index-inline-2.pretty.js (statement-aligned).
-function activeMounts(c, s, t, cfgL, model) {
-  const out = [];
-  if (!(s.T > 0)) return out;
-  const mounts = model.userData.mounts || [];
-  if (cfgL && cfgL.key === "launch") {
-    const st = s.extra && s.extra.stage;
-    const L = LAUNCHERS[cfgL.launcher];
-    const bst = L.stages[0].parallel ? L.stages[0] : null;
-    for (const m of mounts) {
-      if (!m.tag.startsWith("stage:")) continue;
-      const id = m.tag.slice(6);
-      if (id === st) out.push(m);
-      else if (bst && id === bst.id && cfgL.boosters) {
-        const tb = t - MV.md.M.t0;
-        if (tb < 0 && bst.prop === "solid") continue;
-        const tEnd = bst.curve
-          ? bst.curve.filter((p) => p[1] > 0.1).slice(-1)[0][0] + 1
-          : (1.15 * bst.propMass) / (bst.thrustSL / (bst.ispSL * G0));
-        if (tb < tEnd) out.push(m);
-      } // a thrust curve tells when the solid motors burn out
-    }
-    return out;
-  }
-  const b = MV.md.burnAt(t, c.o.id);
-  let tag = null;
-  if (b) {
-    const tk = MV.md.tanks.find((k) => k.engine === b.engine);
-    tag = tk ? tk.id : null;
-  }
-  if (b && /\bRCS\b/.test(b.engine || "") && !tag) return out; // small reaction-control jets: no main-engine plume
-  if (cfgL && cfgL.key === "stack") tag = "upper";
-  const ms = tag ? mounts.filter((mm) => mm.tag === tag) : []; // every engine of that tank (e.g. the orbiter's two OMS engines)
-  if (!ms.length) {
-    const m = mounts.find((mm) => mm.tag === "upper") || mounts[0];
-    if (m) ms.push(...mounts.filter((mm) => mm.tag === m.tag));
-  } // no burn on record (a powered descent): the engines of the first mount's kind
-  out.push(...ms);
-  return out;
-}
-function noseDirection(c, s, t, cfgL, act) {
-  const rD = c.rD || s.r,
-    vD = c.vD || s.v,
-    body = c.dom || s.ref;
-  const up = vunit(rD),
-    ex = s.extra || {};
-  const rot = body === "earth" || body === "mars";
-  const vAir = rot ? vsub(vD, vcross(bodyOmegaEcl(body, t), rD)) : vD;
-  const alt = body === "sun" ? 1e9 : vnorm(rD) - surfaceRadius(body);
-  if (MV.md && MV.md.shPrep !== null && isShuttle(MV.md)) {
-    const sh = shuttleAttitude(c, s, t, cfgL);
-    if (sh) return sh;
-  }
-  // near the ground the roll comes from the ground frame (41_attitude.js), handing over to the flight reference as a craft climbs away
-  const G = groundFrame(c, t),
-    upR = flightSign(c, t) < 0 ? vscale(up, -1) : up;
-  const att = (nose, ref) => {
-    if (!G) return { nose, roll: ref };
-    const g = G.z ? G.P : vcross(G.P, nose);
-    return G.w >= 1
-      ? { nose, roll: g }
-      : { nose, roll: g, roll2: ref, w2: 1 - G.w };
+// index-inline-2 39 — ce5
+// Lines 10577-10785 of readable/index-inline-2.pretty.js (statement-aligned).
+function ce5Assembly(P, flags) {
+  const g = new THREE.Group(),
+    mounts = [],
+    H3 = 3600,
+    has = (k) => P.has(k);
+  const ascOnLander = (ln) => {
+    const a = ce5Ascender();
+    a.position.y = CE5.L.H + CE5.A.gap;
+    ln.add(a);
+    return a;
   };
-  if (
-    s.surface ||
-    s.pad ||
-    (cfgL && cfgL.landed) ||
-    ex.phase === "landed" ||
-    ex.phase === "touchdown" ||
-    ex.phase === "recovery"
-  )
-    return s.rover && s.hdg
-      ? { nose: up, roll: s.hdg }
-      : att(up, s.hdg || vperp(up));
-  // Starship lights its engines for landing while still lying belly-first and pitches up onto them over a few seconds
-  const belly = (H) => {
-    const va = vnorm(vAir) > 1e-9 ? vunit(vAir) : vscale(up, -1),
-      e = Math.max(0, 60 * DEG - Math.asin(clamp(-vdot(va, up), -1, 1)));
-    return { va, nose: vadd(vscale(H, Math.cos(e)), vscale(up, Math.sin(e))) };
+  const dockedAsc = () => {
+    const a = ce5Ascender();
+    a.rotation.x = Math.PI;
+    a.position.y = CE5.dockY + CE5.A.H;
+    return a;
   };
-  if (s.T > 0 && s.dir && vnorm(s.dir) > 0.5) {
-    const flip = act[0] && act[0].flip;
-    let n = flip ? vscale(s.dir, -1) : s.dir;
-    const ti = G && G.ep.tIgn;
-    if (ti != null && t >= ti && t < ti + ATT.flip)
-      n = pitchToward(
-        belly(vunit(vcross(G.P, up))).nose,
-        n,
-        G.P,
-        smoothstep((t - ti) / ATT.flip),
+  if (has("orbiter") && has("lander")) {
+    const o = ce5Orbiter({
+      support: true,
+      claws: "open",
+      stowed: flags.stowed,
+      deployT: flags.deployT,
+    });
+    g.add(o);
+    mounts.push(...o.userData.mounts);
+    const ln = ce5Lander();
+    ln.position.y = CE5.L.y0;
+    g.add(ln);
+    ascOnLander(ln);
+    for (let k = 0; k < 4; k++) {
+      const a = (45 + 90 * k) * DEG;
+      g.add(
+        m20Bar(
+          m20Polar(CE5.D.r - 0.05, a, CE5.D.y + CE5.D.h),
+          m20Polar(0.9, a, CE5.L.y0),
+          0.04,
+          mat("#b9bec4", "metal"),
+        ),
       );
-    return att(n, upR);
-  }
-  // the seconds between one stage letting go and the next lighting up: the stack holds the attitude its guidance commands
-  const asc = c.o.id === "ship" && c.o.segs[0];
-  if (
-    cfgL &&
-    cfgL.key === "launch" &&
-    !s.pad &&
-    asc &&
-    t > asc.t0 &&
-    t < asc.t1 &&
-    s.dir &&
-    vnorm(s.dir) > 0.5
-  )
-    return att(vunit(s.dir), upR);
-  if (
-    cfgL &&
-    (cfgL.key === "capsule" ||
-      (cfgL.parts &&
-        (cfgL.parts.includes("aeroshell") || cfgL.parts.includes("backshell"))))
-  ) {
-    if (cfgL.chutes || cfgL.chute || ex.chute) return att(up, vperp(up)); // hanging under its parachute (a backshell let go keeps its own)
-    const vv = alt < 200 ? vAir : vD;
-    return att(vscale(vunit(vv), -1), upR);
-  }
-  if (
-    c.o.model === "starshipPayload" &&
-    alt < 160 &&
-    (body === "earth" || body === "mars") &&
-    cfgL &&
-    cfgL.key !== "launch"
-  ) {
-    // belly first into the airflow, the heat-shield tiles (−X) facing it: nose about 60° above the flight path at hypersonic
-    // speed, level once the ship falls more steeply than that (the belly-flop). Heading: along the ground track until it
-    // falls steeply toward the landing site, then the heading it will land with
-    const hz = vsub(vAir, vscale(up, vdot(vAir, up)));
-    const { va, nose } = belly(
-      G ? vunit(vcross(G.P, up)) : vnorm(hz) > 1e-7 ? vunit(hz) : vperp(up),
-    );
-    return att(nose, vcross(nose, va));
-  }
-  if (cfgL && cfgL.key === "launch" && t < MV.md.M.t0 + 1)
-    return att(up, vperp(up));
-  const v = vnorm(vD) > 1e-6 ? vD : up;
-  const a = att(vunit(v), upR);
-  a.coast = true;
-  return a;
-}
-// Where a model sits along its axis relative to the craft's position: feet on the ground when standing on a surface, the base
-// for the whole launch stack (its state is its base) and for a spent stage or booster (it lets go from where it was in the
-// stack); otherwise centred.
-function anchorY(c, cfgL, model, s) {
-  const ud = model.userData,
-    altK = vnorm(s.r) - surfaceRadius(s.ref);
-  const launch = cfgL && cfgL.key === "launch",
-    debris = c.o.kind === "debris";
-  if (!(
-    s.surface ||
-    s.pad ||
-    (cfgL && cfgL.landed) ||
-    launch ||
-    debris ||
-    (ud.footY != null && altK < 3)
-  ))
-    return 0;
-  let fy = ud.footY;
-  if (fy == null) {
-    const ms = (ud.mounts || []).map((m) => m.y);
-    fy = ms.length ? Math.min(...ms) : 0;
-  }
-  if (debris && fy === 0 && ud.bbY) fy = ud.bbY[0] + ud.yc; // boosters carry no mounts: their lowest point
-  return (
-    ud.yc - fy + ((launch || debris) && s.ref === "earth" ? padStandH() : 0)
-  );
-}
-// When a stage drops away (or the launch stack becomes the orbital stack) the rest of the vehicle stays where it was: the
-// model takes the offset that keeps its nose in place and lets it go over several seconds of flight.
-const STAGE_TAU = 8; // s
-function stagingShift(c, t, cfgL, model, s) {
-  if (s.surface || s.pad || !cfgL) return 0;
-  const cf = c.o.configs;
-  let k = -1;
-  for (let i = 0; i < cf.length && cf[i].t <= t; i++) k = i;
-  if (k < 1 || t - cf[k].t > 6 * STAGE_TAU) return 0;
-  const pl = cf[k - 1].label;
-  if (
-    !pl ||
-    pl.key !== "launch" ||
-    !(
-      cfgL.key === "stack" ||
-      (cfgL.key === "launch" && (cfgL.stFrom || 0) > (pl.stFrom || 0))
-    )
-  )
-    return 0;
-  const pm = craftModel(c, pl),
-    top0 = anchorY(c, pl, pm, s) + pm.userData.bbY[1],
-    top1 = anchorY(c, cfgL, model, s) + model.userData.bbY[1];
-  return (top0 - top1) * Math.exp(-(t - cf[k].t) / STAGE_TAU);
-}
-function craftModel(c, cfgL) {
-  const key = JSON.stringify(cfgL || {}) + "|" + c.o.model;
-  let m = c.models.get(key);
-  if (!m) {
-    m = modelForConfig(
-      cfgL || { key: "sc", sc: c.o.model, parts: ["orbiter"] },
-      c.o.model,
-    );
-    c.models.set(key, m);
-  }
-  return m;
-}
-// a spent stage or booster keeps the attitude the stack had when it let go, then tumbles slowly
-function sepAttitude(c) {
-  if (c.sepQ !== undefined) return c.sepQ;
-  c.sepQ = null;
-  const ship = craftById("ship");
-  if (!ship || ship === c) return null;
-  const t = c.o.t0 - 0.02,
-    tmp = { ...ship };
-  computeCraft(tmp, t);
-  if (!tmp.s) return null;
-  const cfgL = cfgAt(ship, t);
-  c.sepQ = craftAttitude(
-    tmp,
-    tmp.s,
-    t,
-    cfgL,
-    activeMounts(tmp, tmp.s, t, cfgL, craftModel(ship, cfgL)),
-    new THREE.Quaternion(),
-  );
-  return c.sepQ;
-}
-// A coasting craft turns to a burn's attitude over the minute before it lights its engines and holds the attitude a burn
-// ended with for half a minute, instead of snapping between flying nose-first and the direction of the burn.
-const BURN_PRE = 60,
-  BURN_HOLD = 30; // s
-function burnHold(c, t) {
-  const md = MV.md;
-  if (!md || !md.powered) return null;
-  let prev = null,
-    next = null;
-  for (const x of md.powered) {
-    if (x.obj !== c.o.id) continue;
-    if (x.t1 <= t && t - x.t1 < BURN_HOLD && (!prev || x.t1 > prev.t1))
-      prev = x;
-    if (x.t0 >= t && x.t0 - t < BURN_PRE && (!next || x.t0 < next.t0)) next = x;
-  }
-  let x = null,
-    edge = 0,
-    w = 0;
-  if (next && (!prev || (next.t0 - t) / BURN_PRE < (t - prev.t1) / BURN_HOLD)) {
-    x = next;
-    edge = next.t0 + 0.3;
-    w = smoothstep(1 - (next.t0 - t) / BURN_PRE);
-  } else if (prev) {
-    x = prev;
-    edge = prev.t1 - 0.3;
-    w = 1 - smoothstep((t - prev.t1) / BURN_HOLD);
-  }
-  if (!x || w <= 0) return null;
-  const q = burnEdgeQ(c, x, edge);
-  return q ? { q, w } : null;
-}
-// the attitude at the start or end of a burn (cached: an attitude held in inertial space)
-function burnEdgeQ(c, x, edge) {
-  c.burnQ = c.burnQ || new Map();
-  const k = x.t0 + ":" + edge;
-  if (c.burnQ.has(k)) return c.burnQ.get(k);
-  const tmp = { ...c };
-  computeCraft(tmp, edge);
-  let q = null;
-  if (tmp.s && tmp.s.T > 0 && !tmp.s.surface) {
-    const cfgL = cfgAt(c, edge);
-    q = craftAttitude(
-      tmp,
-      tmp.s,
-      edge,
-      cfgL,
-      activeMounts(tmp, tmp.s, edge, cfgL, craftModel(c, cfgL)),
-      new THREE.Quaternion(),
-    );
-  }
-  c.burnQ.set(k, q);
-  return q;
-}
-// the attitude a craft is turning toward at t (the drawn one eases into it), into quaternion q
-function craftAttitude(c, s, t, cfgL, act, q) {
-  const hangs = cfgL && cfgL.chute; // under a parachute: no tumbling
-  if (c.o.kind === "debris" && !s.surface && !hangs && sepAttitude(c)) {
-    q.copy(c.sepQ);
-    _q2.setFromAxisAngle(_axTumble, (t - c.o.t0) * 0.035);
-    return q.multiply(_q2);
-  }
-  const nd = noseDirection(c, s, t, cfgL, act);
-  basisQuat(nd.nose, nd.roll, q);
-  if (nd.roll2 && nd.w2 > 0) {
-    basisQuat(nd.nose, nd.roll2, _q3);
-    q.slerp(_q3, nd.w2);
-  } // handing over between two roll references
-  applyShuttleSpin(nd, q);
-  if (nd.coast && c.o.kind === "craft" && !s.surface && !s.pad) {
-    const bh = burnHold(c, t);
-    if (bh) q.slerp(bh.q, bh.w);
-  }
-  if (
-    !s.surface &&
-    !s.pad &&
-    !hangs &&
-    (c.o.kind === "debris" || (c.o.kind === "stage" && !(s.T > 0)))
-  ) {
-    // slow tumble after separation (not once it rests on a surface, e.g. the LM descent stage left on the Moon)
-    const age = c.o.id === "et" ? Math.max(0, t - c.o.t0 - 90) : t - c.o.t0; // the Shuttle's tank drifts clear before it starts to tumble
-    _q2.setFromAxisAngle(_axTumble, age * 0.035);
-    q.multiply(_q2);
-  }
-  return q;
-}
-function computeCraft(c, t) {
-  const s = craftState(c, t);
-  c.s = s;
-  if (!s) {
-    c.P = null;
-    return;
-  }
-  if (s.surface && !s.pad && MV.md) groundCraft(c, s, t);
-  if (c.o.model === "shuttle" && MV.md && isShuttle(MV.md))
-    shuttleGround(c, s, t);
-  if (!(s.T > 0) && !s.surface && MV.md) {
-    // a burn the plan applies as an instant Δv: show it firing for its real duration
-    const x = MV.md.impAt(t, c.o.id);
-    if (x) {
-      const b = x.burn,
-        dur = Math.max(x.t1 - x.t0, 1),
-        m = s.m > 0 ? s.m : b.m0 || 1000;
-      s.T = (m * (b.dv || 0)) / dur;
-      s.dir =
-        x.dir ||
-        (/insertion|capture|braking|descent|deorbit|retro/i.test(x.name)
-          ? vscale(vunit(s.v), -1)
-          : vunit(s.v));
-      s.imp = true;
     }
+    const lp = ln.userData.pose,
+      fold = (f) => {
+        lp.legs(twPhase(f, 0.5, 1));
+        lp.wings(twLerp(-Math.PI / 2, 0, twPhase(f, 0, 0.5)));
+      };
+    if (flags.deployT != null) {
+      const oa = o.userData.animate;
+      g.userData.animate = (t) => {
+        oa(t);
+        fold(clamp((t - flags.deployT - 240) / 240, 0, 1));
+      };
+    }
+    fold(flags.stowed || flags.deployT != null ? 0 : 1);
+    g.userData.len = CE5.L.y0 + CE5.L.H + CE5.A.gap + CE5.A.H + 0.36;
+    g.userData.yc0 = 2.4;
+  } else if (has("orbiter") && has("ascent")) {
+    const o = ce5Orbiter({ support: true, claws: "closed", channel: true });
+    g.add(o, dockedAsc());
+    mounts.push(...o.userData.mounts);
+    g.userData.len = CE5.dockY + CE5.A.H + CE5.A.eng;
+    g.userData.yc0 = 2.0;
+  } else if (has("orbiter")) {
+    const sup = flags.dock !== false,
+      o = ce5Orbiter({ support: sup, claws: "open", channel: sup });
+    g.add(o);
+    mounts.push(...o.userData.mounts);
+    g.userData.yc0 = 2.0;
+  } else if (has("service")) {
+    const o = ce5Orbiter({ returner: false });
+    g.add(o);
+    mounts.push(...o.userData.mounts);
+    g.userData.yc0 = 2.0;
+  } else if (has("ascent") && flags.dock) {
+    g.add(ce5Upper({ claws: "closed", channel: true }), dockedAsc());
+    g.userData.len = CE5.dockY + CE5.A.H + CE5.A.eng;
+    g.userData.yc0 = 2.0;
+  } // released with the docking and support modules (in the orbiter's frame)
+  else if (has("ascent")) {
+    const a = ce5Ascender();
+    g.add(a);
+    mounts.push({ y: -CE5.A.eng, r: 0.2, tag: "ASC" });
+    g.userData.footY = -(CE5.L.H + CE5.A.gap + CE5.L.foot);
+    g.userData.len = CE5.A.H;
+  } else if (has("lander") || has("descent")) {
+    const ln = ce5Lander();
+    g.add(ln);
+    const lp = ln.userData.pose;
+    g.userData.footY = -CE5.L.foot;
+    g.userData.len = has("lander") ? CE5.L.H + CE5.A.gap + CE5.A.H : CE5.L.H;
+    if (has("lander")) ascOnLander(ln);
+    if (has("descent")) {
+      lp.wings(0.6);
+      lp.flag(1);
+    } else if (!flags.landed)
+      mounts.push({ y: -CE5.L.eng, r: 0.3, tag: "LDR" });
+    else if (flags.tLand != null) {
+      const T = flags.tLand,
+        h = (t) => (t - T) / H3,
+        [d0, d1] = CE5_HOURS.drill,
+        [a0, a1] = CE5_HOURS.arm;
+      g.userData.animate = (t) => {
+        const x = h(t);
+        lp.wings(twLerp(0, 0.6, clamp(x / 0.1, 0, 1)));
+        lp.drill(
+          x < d0
+            ? 0
+            : x < d1 - 0.7
+              ? (1.3 * (x - d0)) / (d1 - 0.7 - d0)
+              : 1.3 * clamp((d1 - x) / 0.7, 0, 1),
+        );
+        lp.arm(
+          x <= a0 || x >= a1
+            ? lp.ARM.stow
+            : ce5ArmAt(lp.ARM, (x - a0) / (a1 - a0)),
+        );
+        lp.flag(clamp((x - CE5_HOURS.flag) / 0.05, 0, 1));
+      };
+      g.userData.animate(T);
+    } else lp.wings(0.6);
+  } else if (has("capsule")) {
+    g.add(ce5Returner());
+    g.userData.chuteY = CE5.RET.h;
+    g.userData.capsuleR = CE5.RET.r;
+    g.userData.len = CE5.RET.h;
   }
-  const Hs = helio(s.ref, t);
-  c.P = vadd(Hs.r, s.r);
-  c.Vh = vadd(Hs.v, s.v);
-  const b = s.surface || s.pad ? s.ref : dominantBody(c.P, t);
-  c.dom = b;
-  if (b === s.ref) {
-    c.rD = s.r;
-    c.vD = s.v;
-  } else {
-    const B = helio(b, t);
-    c.rD = vsub(c.P, B.r);
-    c.vD = vsub(c.Vh, B.v);
+  g.userData.len = g.userData.len || 2;
+  return { inner: g, mounts };
+}
+
+// ==== 39_clipper.js
+// ============================================================================
+// Europa Clipper (2024), metres, y = 0 at the foot of the propulsion module. Published (NASA/JPL press kit): the
+// propulsion module is an aluminium cylinder about 3 m tall and 1.5 m wide, with the propellant tanks inside and 24
+// engines of 27.5 N; the electronics vault, an aluminium-zinc box, is bolted on top of it; the high-gain antenna is a
+// 3 m dish; the two solar arrays have five panels each and span 14.2 × 4.1 m apiece, about 30.5 m tip to tip; the
+// magnetometer boom is 8.5 m long; the radar's four HF antennas, 17.6 m each, extend crosswise from the solar arrays,
+// and its eight VHF antennas, 2.76 m each, sit on the arrays; stowed for launch it stands 4.7 m tall, 3 m wide and 4 m
+// deep. The arrays opened within hours of launch, the boom and the radar antennas over the weeks after. Where a size is
+// not published (the vault's, the yoke's, where the antennas sit on the arrays) it is estimated from photographs.
+// Stowed (flags.stowed), the arrays are folded in a stack against the body and the boom and antennas lie along it;
+// from flags.deployT (separation from the Falcon Heavy's upper stage) they open out.
+// ============================================================================
+const CL_PM_R = 0.75,
+  CL_PM_H = 3.0,
+  CL_VAULT = [1.5, 0.9, 1.3],
+  CL_HGA_R = 1.5,
+  CL_ARRAY = [14.2, 4.1],
+  CL_PANELS = 5,
+  CL_MAG = 8.5,
+  CL_HF = 17.6,
+  CL_VHF = 2.76;
+// one solar array along +X from its hinge at the body, the cells facing +Z: five panels in an accordion (even panels fold
+// toward the body, odd ones away), userData.fold(f) folds them (f = 1 open, 0 stacked); the radar antennas ride on it
+function clArray(side) {
+  const L = CL_ARRAY[0],
+    W = CL_ARRAY[1],
+    pw = L / CL_PANELS,
+    g = new THREE.Group(),
+    hinges = [],
+    panels = [];
+  let parent = g;
+  for (let i = 0; i < CL_PANELS; i++) {
+    const h = new THREE.Group();
+    h.position.x = i ? pw : 0;
+    parent.add(h);
+    hinges.push(h);
+    const p = twPanel(pw - 0.04, W, 10, 14, "#b9bdc3");
+    p.position.x = 0.02;
+    h.add(p);
+    panels.push(p);
+    parent = h;
   }
+  // the radar on the outer panels: the HF antenna, a thin pole 17.6 m long across the array's width, standing a little
+  // off its back; the VHF antennas, two flat rectangles 2.76 m long along the array's edges beside it
+  const ant = new THREE.Group();
+  ant.position.set(pw * 3.5, 0, -0.12);
+  hinges[3].add(ant);
+  const hf = twBarMesh(0.03, mat("#d9dcdf", "metal"));
+  twSetBar(hf, [0, -CL_HF / 2, 0], [0, CL_HF / 2, 0]);
+  ant.add(hf);
+  for (const y of [-W / 2 - 0.3, W / 2 + 0.3]) {
+    const v = box(CL_VHF, 0.25, 0.04, mat("#2a2c31", "dark"));
+    v.rotation.x = Math.PI / 2;
+    v.position.set(0, y, 0);
+    ant.add(v);
+  }
+  for (const y of [-W / 2, W / 2])
+    ant.add(
+      m20Bar(
+        [0, y * 0.98, 0.12],
+        [0, y * 0.98, 0],
+        0.015,
+        mat("#9aa0a6", "metal"),
+      ),
+    ); // its stand-offs
+  g.userData.ant = ant; // the antennas are stowed along the array until they deploy (userData.deployAnt)
+  g.userData.fold = (f) => {
+    for (let i = 1; i < CL_PANELS; i++) {
+      hinges[i].rotation.y = (i % 2 ? 1 : -1) * Math.PI * (1 - f);
+      hinges[i].position.z = (i % 2 ? 0.04 : -0.04) * (1 - f);
+    }
+  };
+  g.userData.deployAnt = (f) => {
+    hf.scale.y = Math.max(0.2 + 0.8 * f, 1e-3) * CL_HF;
+    ant.position.z = -0.12 * f - 0.02 * (1 - f);
+  };
+  return g;
 }

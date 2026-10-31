@@ -1,5 +1,5 @@
 // index-inline-2 16 — userdata
-// Lines 4118-4466 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 4140-4473 of readable/index-inline-2.pretty.js (statement-aligned).
 function buildStowed(model, rBelow, fl = {}) {
   const les = !!fl.les,
     saj = !!fl.saj;
@@ -45,6 +45,29 @@ function buildStowed(model, rBelow, fl = {}) {
   }
   if (model === "starshipPayload") {
     g.userData = { len: 0, mounts: [] };
+    return g;
+  }
+  if (model === "clipper") {
+    // on the Falcon Heavy's adapter, the arrays folded against its sides (app/39_clipper.js)
+    const ad = cyl(Math.min(rBelow, 1.6), 0.7, 0.8, mat("#bdbdbd", "metal"));
+    g.add(ad);
+    const sc = buildSC(model, ["orbiter"], { stowed: true });
+    sc.position.y = 0.8;
+    g.add(sc);
+    g.userData = {
+      len: 0.8 + sc.userData.len,
+      mounts: sc.userData.mounts.map((m) => ({ ...m, y: m.y + 0.8 })),
+    };
+    return g;
+  }
+  if (model === "jwst") {
+    // folded on Ariane's adapter, 10.7 m tall inside the fairing (app/3c_jwst.js)
+    const ad = cyl(Math.min(rBelow, 1.3), 1.2, 1.0, mat("#bdbdbd", "metal"));
+    g.add(ad);
+    const sc = buildSC(model, ["orbiter"], { stowed: true });
+    sc.position.y = 1.0;
+    g.add(sc);
+    g.userData = { len: 1.0 + sc.userData.len, mounts: [] };
     return g;
   }
   if (model === "mariner") {
@@ -131,7 +154,7 @@ function buildLaunchStack(lkey, scModel, c) {
       off = bst.booster.offset;
     for (let k = 0; k < n; k++) {
       const a = n === 2 ? k * Math.PI : (k * Math.PI) / 2 + Math.PI / 4;
-      const b = buildStage(bst);
+      const b = buildStage(bst, { az: a });
       b.group.position.set(
         Math.cos(a) * off,
         (firstCoreY || 0) + 0.5,
@@ -158,7 +181,8 @@ function buildLaunchStack(lkey, scModel, c) {
       PF.encloseUpper && core.length >= 2
         ? y - core[core.length - 1].s.geom.reduce((a, gg) => a + gg[0], 0) - 0.5
         : y;
-    const f = ogive(PF.r, PF.len, mat(PF.color), PF.cyl ?? 0.45);
+    const f0 = ogive(PF.r, PF.len, mat(PF.color), PF.cyl ?? 0.45),
+      f = PF.detail ? detailPart(PF.detail, "fairing", f0) : f0;
     f.position.y = yF;
     g.add(f);
     y = yF + PF.len;
@@ -188,6 +212,12 @@ function buildStageOnly(lkey, idx, withAdapter, variant) {
   const st = buildStage(s, {
     ist: false,
     white: variant === "sts1" && lkey === "shuttle" && idx === 1,
+    az:
+      s.parallel && s.booster
+        ? s.booster.count === 2
+          ? 0
+          : Math.PI / 4
+        : undefined,
   }); // (a spent stage's aft interstage went long before)
   if (s.parallel && s.booster) {
     // drop all boosters together
@@ -196,11 +226,11 @@ function buildStageOnly(lkey, idx, withAdapter, variant) {
       off = s.booster.offset;
     for (let k = 0; k < n; k++) {
       const a = n === 2 ? k * Math.PI : (k * Math.PI) / 2 + Math.PI / 4;
-      const b = k === 0 ? st : buildStage(s);
+      const b = k === 0 ? st : buildStage(s, { az: a });
       b.group.position.set(Math.cos(a) * off, 0, Math.sin(a) * off);
-      if (n === 2 && k === 1) b.group.scale.x = -1;
+      if (n === 2 && k === 1 && s.detail) b.group.scale.x = -1;
       g.add(b.group);
-    } // a pair: mirror images
+    } // a pair of scanned boosters: mirror images (a drawn one has its own bearing)
     g.userData = { len: st.len, mounts: [] };
     return g;
   }
@@ -246,6 +276,7 @@ function finishModel(g) {
   g.position.y = -yc;
   wrap.add(g);
   wrap.userData = { ...g.userData, yc, wrapped: true };
+  delete wrap.userData.wingtips; // (the wing tips are given in the model's own frame, 'yc' below the wrapper's: left to the model's node, app/49_contrail.js)
   wrap.updateMatrixWorld(true);
   const bb = new THREE.Box3().setFromObject(wrap);
   const sz = new THREE.Vector3();
@@ -303,49 +334,3 @@ varying vec2 vUv; varying vec3 vN; varying vec3 vP;
 void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 wp = modelMatrix * vec4(position,1.0); vP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp;
 #include <logdepthbuf_vertex>
 }`;
-const GLSL_PLUME_F = `
-#include <common>
-#include <logdepthbuf_pars_fragment>
-uniform vec3 uColor; uniform vec3 uCore; uniform float uI; uniform float uTime; uniform float uDiam; uniform float uDF; uniform float uDL; uniform float uCF;
-varying vec2 vUv; varying vec3 vN; varying vec3 vP;
-void main(){
-  #include <logdepthbuf_fragment>
-  // (clamped: with multisampling, a pixel on the cone's rim can be shaded at its centre just outside the cone, where vUv
-  // runs past 0…1, and pow() of a number below 0 is undefined: NaN on most GPUs, a black dot under the film look)
-  float along = clamp(1.0 - vUv.y, 0.0, 1.0);
-  vec3 V = normalize(cameraPosition - vP);
-  float edge = abs(dot(normalize(vN), V));
-  float body = pow(edge, 1.3) * pow(1.0 - along, 1.6);
-  float flick = 0.85 + 0.15 * sin(uTime * 37.0 + along * 23.0) * sin(uTime * 11.0);
-  // shock diamonds: spaced by the nozzle size and confined to the stretch just behind it, however long the flame
-  float diam = uDiam * smoothstep(0.55, 1.0, sin(along * uDF - uTime * 3.0)) * (1.0 - smoothstep(uDL * 0.55, uDL, along)) * (1.0 - along) * edge;
-  vec3 col = mix(uCore, uColor, smoothstep(0.0, uCF, along));
-  gl_FragColor = vec4(col * (body * flick + diam * 0.8) * uI, 1.0);
-}`;
-function makePlume() {
-  const geo = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
-  geo.translate(0, -0.5, 0); // top (v=1) at y=0, extends to y=-1
-  const m = new THREE.ShaderMaterial({
-    vertexShader: GLSL_PLUME_V,
-    fragmentShader: GLSL_PLUME_F,
-    uniforms: {
-      uColor: { value: new THREE.Color() },
-      uCore: { value: new THREE.Color() },
-      uI: { value: 1 },
-      uTime: { value: 0 },
-      uDiam: { value: 0 },
-      uDF: { value: 46 },
-      uDL: { value: 1 },
-      uCF: { value: 0.45 },
-    },
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-  });
-  const mesh = new THREE.Mesh(geo, m);
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 6;
-  return mesh;
-}
-// shapes the open cone: radius at the nozzle r0, at the tail r1, length len

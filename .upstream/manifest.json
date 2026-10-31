@@ -1,14 +1,22 @@
 {
-  "generated": "2026-10-13",
+  "generated": "2026-10-31",
   "origin": "https://sanghyunpark.pages.dev",
   "files": {
-    "apps/mission-studio/index.html": {
-      "bytes": 1151899,
-      "sha256": "84ee7775bb889f88b112be4c8ca47edf822460c2a6fa469fc42fbbb0f6189418"
+    "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js": {
+      "bytes": 31933,
+      "sha256": "1b11c30e00844fbc9e0d95d687bf3c50b696145090eb07c85dcace08f91186e0"
+    },
+    "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js": {
+      "bytes": 108553,
+      "sha256": "8c75e4b72b16a1cdcba3acbc2ded76fba42fd72a0df0a13f1706ead04f03d529"
     },
     "apps/mission-studio/assets/apollo_lm.0c2c313482.glb": {
       "bytes": 346820,
       "sha256": "0c2c3134820e992a831eeb366119bf2a5bc9b2e50d31896de457da6dfb07db9e"
+    },
+    "apps/mission-studio/assets/ariane5.cd8cebed0d.glb": {
+      "bytes": 603448,
+      "sha256": "cd8cebed0daf36b4748c9eee835fe04544c174895ecbe455fa2352d7ffbfabe1"
     },
     "apps/mission-studio/assets/earth_aux.3bf717776b.jpg": {
       "bytes": 1298640,
@@ -46,6 +54,10 @@
       "bytes": 53423,
       "sha256": "efa4857ae730389dbb710e78c57a3034f8bf0dd35404fdcd4f29dff92e71cf20"
     },
+    "apps/mission-studio/assets/jwst.a6c3528675.glb": {
+      "bytes": 1594384,
+      "sha256": "a6c35286750fdba07fcdaf7c78ede49b62c25bde8296fe6940ba7ac23d35c072"
+    },
     "apps/mission-studio/assets/mars.55a8499eae.jpg": {
       "bytes": 123270,
       "sha256": "55a8499eae465d708e1f31c4eb3030adc28dc1f7c76aa6bcd4788c47cb661174"
@@ -61,6 +73,10 @@
     "apps/mission-studio/assets/mars_aux.4ffcd109cd.jpg": {
       "bytes": 1774539,
       "sha256": "4ffcd109cdebbd0dfdbd6d82482938368173fb7827c82bb7ed91696cf2969dd9"
+    },
+    "apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js": {
+      "bytes": 24850,
+      "sha256": "01f48524f4bac6141eaba07e94cc36e7ee56f311796fa6117c159842941b0468"
     },
     "apps/mission-studio/assets/moon.c0b04ebfd5.jpg": {
       "bytes": 128873,
@@ -114,25 +130,33 @@
       "bytes": 125033,
       "sha256": "b686ef8f1d0c2d8e291aa1b031f8d039f68d90f8e9910220e51dfd95fd48ddeb"
     },
-    "apps/mission-studio/assets/venus.d02db3e21e.jpg": {
-      "bytes": 132854,
-      "sha256": "d02db3e21e12a5ff10c7fe0fbce22e8712c8bcd8aa95bb0034efb78143e8242a"
+    "apps/mission-studio/assets/terrain_edwards.8f322d03f6.json": {
+      "bytes": 2681807,
+      "sha256": "8f322d03f6830dd7ea3e4254b2dfeec2bb36501d8d2c99b9fbc7d275fb65dd08"
     },
-    "apps/mission-studio/assets/BufferGeometryUtils.1b11c30e00.js": {
-      "bytes": 31933,
-      "sha256": "1b11c30e00844fbc9e0d95d687bf3c50b696145090eb07c85dcace08f91186e0"
+    "apps/mission-studio/assets/terrain_ksc.450146f0c2.json": {
+      "bytes": 1288515,
+      "sha256": "450146f0c267055f8065c3ee50d5759dc0495c7a5de313c08ba9ae6a04452355"
     },
-    "apps/mission-studio/assets/GLTFLoader.8c75e4b72b.js": {
-      "bytes": 108553,
-      "sha256": "8c75e4b72b16a1cdcba3acbc2ded76fba42fd72a0df0a13f1706ead04f03d529"
+    "apps/mission-studio/assets/terrain_starbase.d6bfffa20c.json": {
+      "bytes": 1063816,
+      "sha256": "d6bfffa20ca7797a6c11a18b36965ec9f94c41cdd4288d1a59fcf136fbaa280e"
     },
-    "apps/mission-studio/assets/meshopt_decoder.module.01f48524f4.js": {
-      "bytes": 24850,
-      "sha256": "01f48524f4bac6141eaba07e94cc36e7ee56f311796fa6117c159842941b0468"
+    "apps/mission-studio/assets/terrain_whitesands.ddda2f4cc9.json": {
+      "bytes": 1195065,
+      "sha256": "ddda2f4cc9dd26f2ff80cd25137676f40122c87347f1df8686218ea215a34fe3"
     },
     "apps/mission-studio/assets/three.module.min.3e690ac7d1.js": {
       "bytes": 670681,
       "sha256": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6"
+    },
+    "apps/mission-studio/assets/venus.d02db3e21e.jpg": {
+      "bytes": 132854,
+      "sha256": "d02db3e21e12a5ff10c7fe0fbce22e8712c8bcd8aa95bb0034efb78143e8242a"
+    },
+    "apps/mission-studio/index.html": {
+      "bytes": 1348561,
+      "sha256": "4daf66773242a7cbb4f52b1092fc1a7cceb5d0a02d54a353bd30c4c215532951"
     }
   }
 }

@@ -1,5 +1,5 @@
 // index-inline-1 12 — opt
-// Lines 3672-4103 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 3794-4225 of readable/index-inline-1.pretty.js (statement-aligned).
 function simulateEntry(opt) {
   // a sky crane lands its rover with the descent stage hanging above it: the stage, whose path this is, stops edl.hang up
   const body = opt.body,

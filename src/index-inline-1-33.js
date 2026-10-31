@@ -1,5 +1,5 @@
 // index-inline-1 33 — best
-// Lines 11548-11890 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 11670-12013 of readable/index-inline-1.pretty.js (statement-aligned).
 function msrOrbiterBranch(M, cfg, SC, P, tE, rT, vT, massStack, tEI, leg) {
   const H = 3600,
     D = 86400,
@@ -282,64 +282,65 @@ function msrRendezvousAndReturn(
   );
 }
 
-// ---- leo.js
+// ---- halo.js
 // ============================================================================
-// leo.js — Earth-orbit missions flown by the Space Shuttle: ascent to main engine cutoff, External Tank
-// separation, OMS burns, payload deploy or rendezvous and docking with the ISS, deorbit, winged entry,
-// terminal area energy management (TAEM) around the heading alignment cone, and the runway landing.
-// Orbits are integrated with Earth's J2 oblateness (the plane of a low orbit swings several degrees a day).
+// halo.js — the Sun–Earth L2 point and a halo orbit about it (James Webb)
+//   seRot(t): the Sun–Earth rotating frame; l2Point(t): where L2 is
+//   haloCR3BP(az): a periodic halo in the circular restricted three-body problem (Richardson's third-order
+//     approximation, then differential correction); haloRef(t, …): that orbit laid into the real ephemeris
+//   haloStableDir / manifoldBranch: the halo's stable manifold, the branch of it that comes down to the Earth
+//   planHalo(cfg): the transfer designed as that branch (launch plane, perigee, timing), then the launch, the injection
+//     onto it, the corrections, the insertion and the station-keeping, all tracking the branch as reference
 // ============================================================================
-const J2_E = 1.08262668e-3,
-  POLE_E = eqToEcl([0, 0, 1]);
-function leoAccel(r) {
-  // point-mass Earth + J2 (geocentric ECL, km/s²)
-  const rn2 = r[0] * r[0] + r[1] * r[1] + r[2] * r[2],
-    rn = Math.sqrt(rn2),
-    k = -MU_E / (rn2 * rn);
-  const z = r[0] * POLE_E[0] + r[1] * POLE_E[1] + r[2] * POLE_E[2];
-  const f = (-1.5 * J2_E * MU_E * R_E * R_E) / (rn2 * rn2 * rn),
-    q = 1 - (5 * z * z) / rn2;
-  return [
-    k * r[0] + f * (q * r[0] + 2 * z * POLE_E[0]),
-    k * r[1] + f * (q * r[1] + 2 * z * POLE_E[1]),
-    k * r[2] + f * (q * r[2] + 2 * z * POLE_E[2]),
-  ];
+// the mass parameter of the Sun–(Earth+Moon) problem; the Earth and Moon together stand at the Earth's place
+const MU_SE =
+  (BODIES.earth.mu + BODIES.moon.mu) /
+  (BODIES.sun.mu + BODIES.earth.mu + BODIES.moon.mu);
+// The Sun–Earth rotating frame: x̂ from the Sun through the Earth (on toward L2), ẑ the normal of the Earth's orbit, ŷ
+// completing it. Row-major, columns x̂ ŷ ẑ — the layout of emRot (app/40_missionview.js), so the two frames share code.
+function seRot(t) {
+  const e = planetHelio("earth", t),
+    x = vunit(e.r),
+    z = vunit(vcross(e.r, e.v)),
+    y = vcross(z, x);
+  return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
 }
-function makeLeoODE(thrust) {
-  return (t, y, out) => {
-    const a = leoAccel([y[0], y[1], y[2]]);
-    out[0] = y[3];
-    out[1] = y[4];
-    out[2] = y[5];
-    if (thrust && y[6] > 1) {
-      const u = thrust.dir(t, [y[0], y[1], y[2]], [y[3], y[4], y[5]]);
-      const at = thrust.T / y[6] / 1000;
-      out[3] = a[0] + at * u[0];
-      out[4] = a[1] + at * u[1];
-      out[5] = a[2] + at * u[2];
-      out[6] = -thrust.mdot;
-    } else {
-      out[3] = a[0];
-      out[4] = a[1];
-      out[5] = a[2];
-      out[6] = 0;
-    }
-  };
+// the Earth's mean motion about the Sun (rad/s): the sidereal year. (The instantaneous rate swings 7 % between perihelion
+// and aphelion; the reference orbit keeps the mean, so its phase comes round exactly once a period.)
+const SE_N = TAU / (365.25636 * 86400);
+function seOmega() {
+  return SE_N;
 }
-function leoInt(t0, y0, t1, opt = {}) {
-  return integrate(
-    makeLeoODE(opt.thrust || null),
-    t0,
-    Float64Array.from(y0),
-    t1,
-    {
-      rtol: opt.rtol ?? 1e-10,
-      atol: opt.atol ?? 1e-7,
-      hmax: opt.hmax ?? 60,
-      events: opt.events || [],
-      h0: opt.h0 ?? 5,
-      maxSteps: opt.maxSteps ?? 800000,
-    },
-  );
+// γ: the distance of L2 from the Earth in units of the Sun–Earth distance, the root of the quintic
+function l2Gamma() {
+  if (l2Gamma.v) return l2Gamma.v;
+  const mu = MU_SE;
+  let g = Math.cbrt(mu / 3);
+  for (let k = 0; k < 50; k++) {
+    const f =
+      g ** 5 +
+      (3 - mu) * g ** 4 +
+      (3 - 2 * mu) * g ** 3 -
+      mu * g * g -
+      2 * mu * g -
+      mu;
+    const df =
+      5 * g ** 4 +
+      4 * (3 - mu) * g ** 3 +
+      3 * (3 - 2 * mu) * g * g -
+      2 * mu * g -
+      2 * mu;
+    const d = f / df;
+    g -= d;
+    if (Math.abs(d) < 1e-15) break;
+  }
+  return (l2Gamma.v = g);
 }
-// states of an integration on a regular time grid (Hermite interpolation with the stored derivatives)
+// L2 now, geocentric ecliptic km: on the anti-Sun line, γ of the Earth's distance out
+function l2Point(t) {
+  const e = planetHelio("earth", t);
+  return vscale(vunit(e.r), l2Gamma() * vnorm(e.r));
+}
+// ---------------- the circular restricted three-body problem ----------------
+// Rotating frame, origin the barycentre, x toward the Earth (at 1 − μ), unit length the Sun–Earth distance, unit time
+// 1/n (so a year is 2π). y: [x, y, z, ẋ, ẏ, ż] and, for the state transition matrix, 36 more.

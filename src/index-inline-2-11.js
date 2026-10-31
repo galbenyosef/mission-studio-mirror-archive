@@ -1,5 +1,5 @@
 // index-inline-2 11 — film
-// Lines 2731-3021 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 2758-3048 of readable/index-inline-2.pretty.js (statement-aligned).
 function filmBegin() {
   if (!MV.layers.film || !filmSupported()) {
     if (FILM.rt) filmFree();

@@ -1,308 +1,315 @@
-// index-inline-2 46 — math
-// Lines 13055-13360 of readable/index-inline-2.pretty.js (statement-aligned).
-const SHV = { runway: null, lights: null, rwy: null };
-const _qS = new THREE.Quaternion(),
-  _axY = new THREE.Vector3(0, 1, 0),
-  _axX = new THREE.Vector3(1, 0, 0);
-const SH_MAIN_GEAR = [SH_MAIN_CONTACT[0] - 14.7, SH_MAIN_CONTACT[1]]; // main wheel contact relative to the orbiter's reference point (Y 14.7): [along, down] (m)
-// the reference point's height above the ground with every wheel down, at the 4.4° nose-down stance
-const SH_STAND_H = -(
-  SH_MAIN_GEAR[0] * Math.sin(SH_STANCE) +
-  SH_MAIN_GEAR[1] * Math.cos(SH_STANCE)
-);
-function isShuttle(md) {
-  return !!(md && md.L && md.L.sideMount);
-}
-// per mission: launch plane, roll program, deorbit burn, runway
-function shuttlePrep(md) {
-  if (md.shPrep !== undefined) return md.shPrep;
-  if (!isShuttle(md) || !md.ship || !md.ship.segs.length) {
-    md.shPrep = null;
-    return null;
-  }
-  const asc = md.ship.segs[0],
-    sE = asc.stateAt(asc.t1),
-    t0 = md.M.t0;
-  const h = vunit(vcross(sE.r, sE.v)); // orbit normal: the launch plane
-  // roll program: from the pad orientation (orbiter on the south side of the tank, tail facing south) to heads-down
-  const S = LAUNCH_SITES[md.cfg.site],
-    rP = sitePosEcl("earth", S.lat, S.lon, 0, t0),
-    lf = localFrame("earth", rP, t0);
-  const up = lf.up,
-    A = vunit(vcross(h, up)),
-    ref = vunit(vsub(up, A));
-  basisQuat(up, ref, _qS);
-  const Xw = new THREE.Vector3(1, 0, 0).applyQuaternion(_qS),
-    Zw = new THREE.Vector3(0, 0, 1).applyQuaternion(_qS);
-  const N = lf.north,
-    phi0 = Math.atan2(
-      N[0] * Xw.x + N[1] * Xw.y + N[2] * Xw.z,
-      N[0] * Zw.x + N[1] * Zw.y + N[2] * Zw.z,
-    );
-  const deorbit =
-    md.burns.find((b) => b.obj === "ship" && /^Deorbit/.test(b.name)) || null;
-  const et = md.M.obj("et"),
-    tSep = et ? et.t0 : asc.t1 + 18;
-  md.shPrep = {
-    h,
-    phi0,
-    deorbit,
-    rwy: RUNWAYS[md.cfg.runway] || null,
-    tHU: md.cfg.headsUpMET ? t0 + md.cfg.headsUpMET : null,
-    t0,
-    tSep,
-  };
-  return md.shPrep;
-}
-// At tank separation the vehicle stops being drawn as the stack, which stands ahead of its state (the state is its base),
-// and the orbiter (centred on its state) and the tank are drawn on their own. Each starts where it was drawn in the stack
-// and lets that offset go: the part they share over a few seconds, the rest (how far the tank's own state is from where
-// it sat in the stack) over a minute or two, so neither jumps and they do not slide against each other.
-// Returns the offset along the model's axes (model units), or null.
-const SH_SEP_TAU = 12,
-  SH_SEP_DRIFT = 60; // s
-const _vSep = new THREE.Vector3(),
-  _qSep = new THREE.Quaternion();
-function shuttleSepShift(c, t, cfgL, model, s) {
-  const md = MV.md;
-  if (!md || !isShuttle(md) || s.surface || s.pad) return null;
-  const orb =
-      c.o.id === "ship" && cfgL && cfgL.key === "sc" && cfgL.sc === "shuttle",
-    tank = c.o.id === "et";
-  if (!orb && !tank) return null;
-  const P = shuttlePrep(md);
-  if (!P) return null;
-  const dt = t - P.tSep;
-  if (dt < 0 || dt > 8 * SH_SEP_DRIFT) return null;
-  if (c.sepFor !== P) {
-    c.sepFor = P;
-    c.sepW = shuttleSepWorld(c, P, model);
-  }
-  const W = c.sepW;
-  if (!W) return null;
-  const fo = Math.exp(-dt / SH_SEP_TAU),
-    fr = Math.exp(-dt / SH_SEP_DRIFT);
-  _vSep
-    .set(W[0] * fo + W[3] * fr, W[1] * fo + W[4] * fr, W[2] * fo + W[5] * fr)
-    .applyQuaternion(_qSep.copy(c.node.quaternion).invert());
-  return [_vSep.x, _vSep.y, _vSep.z];
-}
-// the offsets at separation, in the scene's axes: [shared part, the tank's remainder]
-function shuttleSepWorld(c, P, model) {
-  const ship = craftById("ship"),
-    tB = P.tSep - 0.05,
-    cfgS = ship && cfgAt(ship, tB);
-  if (!cfgS || cfgS.key !== "launch") return null;
-  const tmp = { ...ship };
-  computeCraft(tmp, tB);
-  if (!tmp.s) return null;
-  const sm = craftModel(ship, cfgS),
-    A =
-      anchorY(ship, cfgS, sm, tmp.s) +
-      stagingShift(ship, tB, cfgS, sm, tmp.s) -
-      sm.userData.yc; // the stack's own origin (the tank's) along its axis
-  const qS = craftAttitude(
-    tmp,
-    tmp.s,
-    tB,
-    cfgS,
-    activeMounts(tmp, tmp.s, tB, cfgS, sm),
-    new THREE.Quaternion(),
-  );
-  const rot = (v) =>
-    new THREE.Vector3(v[0], v[1], v[2]).applyQuaternion(qS).toArray();
-  // the orbiter: its reference point in the stack less where its own model puts it (the model is the stack's turned half
-  // round about Y, which moves neither the origin nor the axis)
-  const ycO = craftModel(ship, cfgAt(ship, P.tSep + 1)).userData.yc,
-    So = rot([0, A + SH_STACK.orbY + ycO, SH_STACK.orbZ]);
-  if (c.o.id === "ship") return [...So, 0, 0, 0];
-  // the tank: its origin in the stack less where its own state and model put it (it leaves with the stack's attitude)
-  const tA = P.tSep + 0.001,
-    a = { ...ship },
-    b = { ...c };
-  computeCraft(a, tA);
-  computeCraft(b, tA);
-  if (!a.P || !b.P) return null;
-  const k = 1 / (c.node.scale.x || 0.001),
-    d = vsub(a.P, b.P),
-    r = rot([0, A - (model.position.y - model.userData.yc), 0]);
-  const Se = [d[0] * k + r[0], d[1] * k + r[1], d[2] * k + r[2]];
-  return [...So, Se[0] - So[0], Se[1] - So[1], Se[2] - So[2]];
-}
-// the orbiter sits in the stack model turned half round about its long axis (buildShuttleStack): going between the two
-// models, its eased attitude takes the half turn too instead of rolling over on screen
-function shuttleHalfTurn(c, a, b) {
-  const st = (x) => x && x.key === "launch",
-    ob = (x) => x && x.key === "sc" && x.sc === "shuttle";
-  return c.o.model === "shuttle" && ((st(a) && ob(b)) || (ob(a) && st(b)));
-}
-function runwayDir(rwy, rD, t) {
-  const lf = localFrame("earth", rD, t),
-    a = rwy.hdg * DEG;
-  return vunit(
-    vadd(vscale(lf.north, Math.cos(a)), vscale(lf.east, Math.sin(a))),
-  );
-}
-// attitude {nose, roll, spin (about the nose), pitch (about the wings)} or null for the generic rules
-function shuttleAttitude(c, s, t, cfgL) {
-  const md = MV.md,
-    P = shuttlePrep(md);
-  if (!P || !cfgL) return null;
+// index-inline-2 46 — cfgl
+// Lines 12709-13021 of readable/index-inline-2.pretty.js (statement-aligned).
+function noseDirection(c, s, t, cfgL, act) {
   const rD = c.rD || s.r,
     vD = c.vD || s.v,
-    up = vunit(rD),
+    body = c.dom || s.ref;
+  const up = vunit(rD),
     ex = s.extra || {};
-  if (cfgL.key === "launch") {
-    // the stack: heads-down after the roll program, heads-up later on some flights
-    const A = vunit(vcross(P.h, up)),
-      ref = vunit(vsub(up, A));
-    const nose =
-      s.pad || t < P.t0
-        ? up
-        : s.T > 0 && s.dir && vnorm(s.dir) > 0.5
-          ? s.dir
-          : vunit(vD);
-    let spin = P.phi0 * (1 - smoothstep((t - P.t0 - 7) / 13));
-    if (P.tHU && t > P.tHU) spin += Math.PI * smoothstep((t - P.tHU) / 36);
-    return { nose, roll: ref, spin };
+  const rot = body === "earth" || body === "mars";
+  const vAir = rot ? vsub(vD, vcross(bodyOmegaEcl(body, t), rD)) : vD;
+  const alt = body === "sun" ? 1e9 : vnorm(rD) - surfaceRadius(body);
+  if (MV.md && MV.md.shPrep !== null && isShuttle(MV.md)) {
+    const sh = shuttleAttitude(c, s, t, cfgL);
+    if (sh) return sh;
   }
-  if (c.o.model === "hubble") return { nose: up, roll: vscale(vunit(vD), -1) }; // released upright, as the arm held it
-  if (c.o.id === "et") {
-    const A = vunit(vcross(P.h, up));
-    return {
-      nose: vunit(vD),
-      roll: vunit(vsub(up, A)),
-      spin: P.tHU ? Math.PI : 0,
-    };
-  } // as it left the stack
-  if (cfgL.sc !== "shuttle") return null;
-  const w = bodyOmegaEcl("earth", t),
-    vAir = vsub(vD, vcross(w, rD));
-  if (s.surface)
-    return {
-      nose: P.rwy ? runwayDir(P.rwy, rD, t) : vperp(up),
-      roll: up,
-      pitch: SH_STANCE,
-    }; // standing nose down on its gear
-  const att = cfgL.att;
-  if (att === "entry") {
-    // along the airflow, raised by the angle of attack, the lift vector banked about the flight path
-    let f = vunit(vAir);
-    if (vnorm(vAir) < 0.004 && P.rwy) f = runwayDir(P.rwy, rD, t);
-    const u0 = vsub(up, vscale(f, vdot(up, f))),
-      u = vnorm(u0) > 1e-9 ? vunit(u0) : vperp(f),
-      right = vcross(f, u);
-    const mu = (ex.bank ?? 0) * DEG,
-      al = (ex.alpha ?? 40) * DEG;
-    const lift = vadd(vscale(u, Math.cos(mu)), vscale(right, Math.sin(mu)));
-    return {
-      nose: vadd(vscale(f, Math.cos(al)), vscale(lift, Math.sin(al))),
-      roll: lift,
-    };
+  // near the ground the roll comes from the ground frame (41_attitude.js), handing over to the flight reference as a craft climbs away
+  const G = groundFrame(c, t),
+    upR = flightSign(c, t) < 0 ? vscale(up, -1) : up;
+  const att = (nose, ref) => {
+    if (!G) return { nose, roll: ref };
+    const g = G.z ? G.P : vcross(G.P, nose);
+    return G.w >= 1
+      ? { nose, roll: g }
+      : { nose, roll: g, roll2: ref, w2: 1 - G.w };
+  };
+  if (
+    s.surface ||
+    s.pad ||
+    (cfgL && cfgL.landed) ||
+    ex.phase === "landed" ||
+    ex.phase === "touchdown" ||
+    ex.phase === "recovery"
+  )
+    return s.rover && s.hdg
+      ? { nose: up, roll: s.hdg }
+      : att(up, s.hdg || vperp(up));
+  // Starship lights its engines for landing while still lying belly-first and pitches up onto them over a few seconds
+  const belly = (H) => {
+    const va = vnorm(vAir) > 1e-9 ? vunit(vAir) : vscale(up, -1),
+      e = Math.max(0, 60 * DEG - Math.asin(clamp(-vdot(va, up), -1, 1)));
+    return { va, nose: vadd(vscale(H, Math.cos(e)), vscale(up, Math.sin(e))) };
+  };
+  if (s.T > 0 && s.dir && vnorm(s.dir) > 0.5) {
+    const flip = act[0] && act[0].flip;
+    let n = flip ? vscale(s.dir, -1) : s.dir;
+    const ti = G && G.ep.tIgn;
+    if (ti != null && t >= ti && t < ti + ATT.flip)
+      n = pitchToward(
+        belly(vunit(vcross(G.P, up))).nose,
+        n,
+        G.P,
+        smoothstep((t - ti) / ATT.flip),
+      );
+    return att(n, upR);
   }
-  const dB = P.deorbit; // deorbit: tail first and upside down, until the pitch-around to the entry attitude
-  if (dB && t >= dB.t - 1200 && t <= dB.t + dB.dur + 600)
-    return { nose: vscale(vunit(vD), -1), roll: vscale(up, -1) };
-  // heads-down flights: the orbiter leaves the tank upside down and rolls over ten minutes later
-  const spin = P.tHU ? 0 : Math.PI * (1 - smoothstep((t - P.tSep - 600) / 60));
-  if (s.T > 0 && s.dir && vnorm(s.dir) > 0.5)
-    return { nose: s.dir, roll: up, spin };
-  if (att === "rbar" || att === "rpm" || att === "vbar" || att === "fly") {
-    const iss = craftById("iss");
-    const F =
-      iss && iss.s ? lvlh(iss.rD || iss.s.r, iss.vD || iss.s.v) : lvlh(rD, vD);
-    if (att === "rbar") return { nose: F.x, roll: F.z }; // payload bay up toward the station
-    if (att === "rpm")
-      return {
-        nose: F.x,
-        roll: F.z,
-        pitch: TAU * smoothstep((t - cfgL.rpm0) / (cfgL.rpm1 - cfgL.rpm0)),
-      }; // the back-flip
-    if (att === "vbar")
-      return {
-        nose: F.x,
-        roll: F.z,
-        pitch:
-          (Math.PI / 2) *
-          (cfgL.sw0 != null
-            ? smoothstep((t - cfgL.sw0) / (cfgL.sw1 - cfgL.sw0))
-            : 1),
-      }; // nose up, bay facing the station
-    const rel = iss && iss.P ? toLvlh(F, vsub(c.P, iss.P)) : [1, 0, 0]; // flyaround: the bay keeps facing the station
-    return {
-      nose: F.x,
-      roll: F.z,
-      pitch: Math.PI / 2 + Math.atan2(rel[2], rel[0]),
-    };
+  // the seconds between one stage letting go and the next lighting up: the stack holds the attitude its guidance commands
+  const asc = c.o.id === "ship" && c.o.segs[0];
+  if (
+    cfgL &&
+    cfgL.key === "launch" &&
+    !s.pad &&
+    asc &&
+    t > asc.t0 &&
+    t < asc.t1 &&
+    s.dir &&
+    vnorm(s.dir) > 0.5
+  )
+    return att(vunit(s.dir), upR);
+  if (
+    cfgL &&
+    (cfgL.key === "capsule" ||
+      (cfgL.parts &&
+        (cfgL.parts.includes("aeroshell") || cfgL.parts.includes("backshell"))))
+  ) {
+    if (cfgL.chutes || cfgL.chute || ex.chute) return att(up, vperp(up)); // hanging under its parachute (a backshell let go keeps its own)
+    const vv = alt < 200 ? vAir : vD;
+    return att(vscale(vunit(vv), -1), upR);
   }
-  return { nose: vunit(vD), roll: up, spin }; // in orbit: nose forward, payload bay facing space
+  if (
+    c.o.model === "starshipPayload" &&
+    alt < 160 &&
+    (body === "earth" || body === "mars") &&
+    cfgL &&
+    cfgL.key !== "launch"
+  ) {
+    // belly first into the airflow, the heat-shield tiles (−X) facing it: nose about 60° above the flight path at hypersonic
+    // speed, level once the ship falls more steeply than that (the belly-flop). Heading: along the ground track until it
+    // falls steeply toward the landing site, then the heading it will land with
+    const hz = vsub(vAir, vscale(up, vdot(vAir, up)));
+    const { va, nose } = belly(
+      G ? vunit(vcross(G.P, up)) : vnorm(hz) > 1e-7 ? vunit(hz) : vperp(up),
+    );
+    return att(nose, vcross(nose, va));
+  }
+  if (cfgL && cfgL.key === "launch" && t < MV.md.M.t0 + 1)
+    return att(up, vperp(up));
+  if (c.o.model === "jwst" && cfgL && cfgL.key === "sc") {
+    const a = att(vunit(c.P), [0, 0, 1]);
+    a.coast = true;
+    return a;
+  } // Webb flies sunshield to the Sun, the telescope (+Y) away from it
+  const v = vnorm(vD) > 1e-6 ? vD : up;
+  const a = att(vunit(v), upR);
+  a.coast = true;
+  return a;
 }
-// rotate the attitude quaternion by the extra spin/pitch of a shuttle attitude
-function applyShuttleSpin(nd, q) {
-  if (nd.spin) {
-    _qS.setFromAxisAngle(_axY, nd.spin);
-    q.multiply(_qS);
+// Where a model sits along its axis relative to the craft's position: feet on the ground when standing on a surface, the base
+// for the whole launch stack (its state is its base) and for a spent stage or booster (it lets go from where it was in the
+// stack); otherwise centred.
+function anchorY(c, cfgL, model, s) {
+  const ud = model.userData,
+    altK = vnorm(s.r) - surfaceRadius(s.ref);
+  const launch = cfgL && cfgL.key === "launch",
+    debris = c.o.kind === "debris";
+  if (!(
+    s.surface ||
+    s.pad ||
+    (cfgL && cfgL.landed) ||
+    launch ||
+    debris ||
+    (ud.footY != null && altK < 3)
+  ))
+    return 0;
+  let fy = ud.footY;
+  if (fy == null) {
+    const ms = (ud.mounts || []).map((m) => m.y);
+    fy = ms.length ? Math.min(...ms) : 0;
   }
-  if (nd.pitch) {
-    _qS.setFromAxisAngle(_axX, nd.pitch);
-    q.multiply(_qS);
-  }
+  if (debris && fy === 0 && ud.bbY) fy = ud.bbY[0] + ud.yc; // boosters carry no mounts: their lowest point
+  return (
+    ud.yc - fy + ((launch || debris) && s.ref === "earth" ? padStandH() : 0)
+  );
 }
-// With the gear down near the runway, the main wheels on the ground whatever the pitch: in the flare the reference point is
-// raised where the planned path (for wings level and the reference plane at gear height) would sink them, and on the runway
-// it rides at the height that keeps them on the paint as the nose comes down to the 4.4° stance. Standing after wheel stop
-// it stays at that height (the ground under it is where groundCraft put the state): the chase camera and the scene's origin
-// follow the reference point, and would drop 5.6 m at wheel stop if it went down to the ground.
-function shuttleGround(c, s, t) {
-  const P = shuttlePrep(MV.md);
-  if (!P || !P.rwy || s.pad) return;
-  const cf = c.o.configAt(t),
-    lab = cf && cf.label;
-  if (s.surface) {
-    if (lab && lab.key === "sc") {
-      s.r = vscale(s.r, 1 + SH_STAND_H / 1000 / vnorm(s.r));
-      s.v = vcross(bodyOmegaEcl("earth", t), s.r);
-    }
+// When a stage drops away (or the launch stack becomes the orbital stack) the rest of the vehicle stays where it was: the
+// model takes the offset that keeps its nose in place and lets it go over several seconds of flight.
+const STAGE_TAU = 8; // s
+function stagingShift(c, t, cfgL, model, s) {
+  if (s.surface || s.pad || !cfgL) return 0;
+  const cf = c.o.configs;
+  let k = -1;
+  for (let i = 0; i < cf.length && cf[i].t <= t; i++) k = i;
+  if (k < 1 || t - cf[k].t > 6 * STAGE_TAU) return 0;
+  const pl = cf[k - 1].label;
+  if (
+    !pl ||
+    pl.key !== "launch" ||
+    !(
+      cfgL.key === "stack" ||
+      (cfgL.key === "launch" && (cfgL.stFrom || 0) > (pl.stFrom || 0))
+    )
+  )
+    return 0;
+  const pm = craftModel(c, pl),
+    top0 = anchorY(c, pl, pm, s) + pm.userData.bbY[1],
+    top1 = anchorY(c, cfgL, model, s) + model.userData.bbY[1];
+  return (top0 - top1) * Math.exp(-(t - cf[k].t) / STAGE_TAU);
+}
+function craftModel(c, cfgL) {
+  const key = JSON.stringify(cfgL || {}) + "|" + c.o.model;
+  let m = c.models.get(key);
+  if (!m) {
+    m = modelForConfig(
+      cfgL || { key: "sc", sc: c.o.model, parts: ["orbiter"] },
+      c.o.model,
+    );
+    c.models.set(key, m);
+  }
+  return m;
+}
+// a spent stage or booster keeps the attitude the stack had when it let go, then tumbles slowly
+function sepAttitude(c) {
+  if (c.sepQ !== undefined) return c.sepQ;
+  c.sepQ = null;
+  const ship = craftById("ship");
+  if (!ship || ship === c) return null;
+  const t = c.o.t0 - 0.02,
+    tmp = { ...ship };
+  computeCraft(tmp, t);
+  if (!tmp.s) return null;
+  const cfgL = cfgAt(ship, t);
+  c.sepQ = craftAttitude(
+    tmp,
+    tmp.s,
+    t,
+    cfgL,
+    activeMounts(tmp, tmp.s, t, cfgL, craftModel(ship, cfgL)),
+    new THREE.Quaternion(),
+  );
+  return c.sepQ;
+}
+// A coasting craft turns to a burn's attitude over the minute before it lights its engines and holds the attitude a burn
+// ended with for half a minute, instead of snapping between flying nose-first and the direction of the burn.
+const BURN_PRE = 60,
+  BURN_HOLD = 30; // s
+function burnHold(c, t) {
+  const md = MV.md;
+  if (!md || !md.powered) return null;
+  let prev = null,
+    next = null;
+  for (const x of md.powered) {
+    if (x.obj !== c.o.id) continue;
+    if (x.t1 <= t && t - x.t1 < BURN_HOLD && (!prev || x.t1 > prev.t1))
+      prev = x;
+    if (x.t0 >= t && x.t0 - t < BURN_PRE && (!next || x.t0 < next.t0)) next = x;
+  }
+  let x = null,
+    edge = 0,
+    w = 0;
+  if (next && (!prev || (next.t0 - t) / BURN_PRE < (t - prev.t1) / BURN_HOLD)) {
+    x = next;
+    edge = next.t0 + 0.3;
+    w = smoothstep(1 - (next.t0 - t) / BURN_PRE);
+  } else if (prev) {
+    x = prev;
+    edge = prev.t1 - 0.3;
+    w = 1 - smoothstep((t - prev.t1) / BURN_HOLD);
+  }
+  if (!x || w <= 0) return null;
+  const q = burnEdgeQ(c, x, edge);
+  return q ? { q, w } : null;
+}
+// the attitude at the start or end of a burn (cached: an attitude held in inertial space)
+function burnEdgeQ(c, x, edge) {
+  c.burnQ = c.burnQ || new Map();
+  const k = x.t0 + ":" + edge;
+  if (c.burnQ.has(k)) return c.burnQ.get(k);
+  const tmp = { ...c };
+  computeCraft(tmp, edge);
+  let q = null;
+  if (tmp.s && tmp.s.T > 0 && !tmp.s.surface) {
+    const cfgL = cfgAt(c, edge);
+    q = craftAttitude(
+      tmp,
+      tmp.s,
+      edge,
+      cfgL,
+      activeMounts(tmp, tmp.s, edge, cfgL, craftModel(c, cfgL)),
+      new THREE.Quaternion(),
+    );
+  }
+  c.burnQ.set(k, q);
+  return q;
+}
+// the attitude a craft is turning toward at t (the drawn one eases into it), into quaternion q
+function craftAttitude(c, s, t, cfgL, act, q) {
+  const hangs = cfgL && cfgL.chute; // under a parachute: no tumbling
+  if (c.o.kind === "debris" && !s.surface && !hangs && sepAttitude(c)) {
+    q.copy(c.sepQ);
+    _q2.setFromAxisAngle(_axTumble, (t - c.o.t0) * 0.035);
+    return q.multiply(_q2);
+  }
+  const nd = noseDirection(c, s, t, cfgL, act);
+  basisQuat(nd.nose, nd.roll, q);
+  if (nd.roll2 && nd.w2 > 0) {
+    basisQuat(nd.nose, nd.roll2, _q3);
+    q.slerp(_q3, nd.w2);
+  } // handing over between two roll references
+  applyShuttleSpin(nd, q);
+  if (nd.coast && c.o.kind === "craft" && !s.surface && !s.pad) {
+    const bh = burnHold(c, t);
+    if (bh) q.slerp(bh.q, bh.w);
+  }
+  if (
+    !s.surface &&
+    !s.pad &&
+    !hangs &&
+    (c.o.kind === "debris" || (c.o.kind === "stage" && !(s.T > 0)))
+  ) {
+    // slow tumble after separation (not once it rests on a surface, e.g. the LM descent stage left on the Moon)
+    const age = c.o.id === "et" ? Math.max(0, t - c.o.t0 - 90) : t - c.o.t0; // the Shuttle's tank drifts clear before it starts to tumble
+    _q2.setFromAxisAngle(_axTumble, age * 0.035);
+    q.multiply(_q2);
+  }
+  return q;
+}
+function computeCraft(c, t) {
+  const s = craftState(c, t);
+  c.s = s;
+  if (!s) {
+    c.P = null;
     return;
   }
-  if (!lab || !lab.gear) return;
-  const Rr = R_E + P.rwy.elev,
-    h = vnorm(s.r) - Rr;
-  if (h > 0.015) return;
-  const al = ((s.extra && s.extra.alpha) || 0) * DEG,
-    hMin =
-      (-SH_MAIN_GEAR[0] * Math.sin(al) - SH_MAIN_GEAR[1] * Math.cos(al)) /
-        1000 +
-      SH_RWY_TOP +
-      0.00002;
-  const rolling = s.extra && /rollout|wheel stop/.test(s.extra.phase || "");
-  if (h < hMin || rolling) s.r = vscale(s.r, (Rr + hMin) / vnorm(s.r)); // tyres 2 cm above the paint, as standing craft are
-  if (rolling) {
-    // and moving over it, not into it: the nose follows the way it rolls even as it comes to rest
-    const w = vcross(bodyOmegaEcl("earth", t), s.r),
-      up = vunit(s.r),
-      vg = vsub(s.v, w);
-    s.v = vadd(w, vsub(vg, vscale(up, vdot(vg, up))));
+  if (s.surface && !s.pad && MV.md) groundCraft(c, s, t);
+  if (c.o.model === "shuttle" && MV.md && isShuttle(MV.md))
+    shuttleGround(c, s, t);
+  if (!(s.T > 0) && !s.surface && MV.md) {
+    // a burn the plan applies as an instant Δv: show it firing for its real duration
+    const x = MV.md.impAt(t, c.o.id);
+    if (x) {
+      const b = x.burn,
+        dur = Math.max(x.t1 - x.t0, 1),
+        m = s.m > 0 ? s.m : b.m0 || 1000;
+      s.T = (m * (b.dv || 0)) / dur;
+      s.dir =
+        x.dir ||
+        (/insertion|capture|braking|descent|deorbit|retro/i.test(x.name)
+          ? vscale(vunit(s.v), -1)
+          : vunit(s.v));
+      s.imp = true;
+    }
+  }
+  const Hs = helio(s.ref, t);
+  c.P = vadd(Hs.r, s.r);
+  c.Vh = vadd(Hs.v, s.v);
+  const b = s.surface || s.pad ? s.ref : dominantBody(c.P, t);
+  c.dom = b;
+  if (b === s.ref) {
+    c.rD = s.r;
+    c.vD = s.v;
+  } else {
+    const B = helio(b, t);
+    c.rD = vsub(c.P, B.r);
+    c.vD = vsub(c.Vh, B.v);
   }
 }
-// The runway is drawn on the true sphere, SH_RWY_TOP above its elevation, while the surface patch under it is made of flat
-// facets that sag up to ~0.7 m below the sphere between their corners. Radius (km) of the drawn runway under a direction
-// in the planet's mesh frame, or null off the runway: what an orbiter standing on it rests on.
-const SH_RWY_TOP = 0.00003;
-function runwayRadius(body, dLoc) {
-  const rw = SHV.rwy;
-  if (!rw || body !== "earth") return null;
-  const b = R.bodies.earth,
-    C = meshDir(rw.lat, rw.lon),
-    { E, N } = meshEN(rw.lat, rw.lon),
-    hd = rw.hdg * DEG;
-  const f = vadd(vscale(E, Math.sin(hd)), vscale(N, Math.cos(hd))),
-    l = vcross(C, f),
-    d = vsub(dLoc, C);
-  const x = vdot(d, f) * b.R,
-    y = vdot(d, l) * b.R; // km along the runway from its threshold, and across
-  if (x < -0.1 || x > rw.len + 0.1 || Math.abs(y) > rw.wid / 2 + 0.05)
-    return null;
-  return b.R + rw.elev + SH_RWY_TOP;
-}
-// ---------------- the runway ----------------

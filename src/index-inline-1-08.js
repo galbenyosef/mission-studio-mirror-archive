@@ -1,5 +1,5 @@
 // index-inline-1 08 — prop
-// Lines 2190-2668 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 2296-2790 of readable/index-inline-1.pretty.js (statement-aligned).
 const SPACECRAFT = {
   apolloCSMLM: {
     name: "Apollo CSM + LM",
@@ -311,6 +311,22 @@ const SPACECRAFT = {
     lander: null,
     prop: { orbiter: "SC" },
     model: "clipper",
+  },
+  jwst: {
+    name: "James Webb Space Telescope",
+    crewMax: 0,
+    modules: {
+      OBS: {
+        name: "Observatory",
+        dry: 5861,
+        prop: 300,
+        engine: { name: "SCAT (4 × 22 N)", thrust: 88, isp: 295, prop: "mmh" },
+      },
+    }, // hydrazine for attitude, MMH/NTO for the corrections
+    orbiter: ["OBS"],
+    lander: null,
+    prop: { orbiter: "OBS" },
+    model: "jwst",
   },
   starshipCrew: {
     name: "Starship (crewed Mars configuration)",

@@ -1,5 +1,5 @@
 // index-inline-1 32 — best
-// Lines 11249-11547 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 11371-11669 of readable/index-inline-1.pretty.js (statement-aligned).
 function departPlanet(
   M,
   cfg,

@@ -1,5 +1,5 @@
 // index-inline-1 16 — math
-// Lines 5022-5356 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 5144-5478 of readable/index-inline-1.pretty.js (statement-aligned).
 const EXPLAIN = {
   liftoff:
     "Engines reach full thrust; hold-down clamps release. Thrust must exceed weight (T/W > 1) — the rocket climbs slowly at first.",

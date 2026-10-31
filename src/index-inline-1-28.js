@@ -1,5 +1,5 @@
 // index-inline-1 28 — ent
-// Lines 10016-10329 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 10138-10451 of readable/index-inline-1.pretty.js (statement-aligned).
 function doDirectEntry(
   M,
   cfg,

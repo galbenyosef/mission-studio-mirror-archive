@@ -1,5 +1,5 @@
 // index-inline-2 18 — three
-// Lines 4733-5082 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 4803-5092 of readable/index-inline-2.pretty.js (statement-aligned).
 function plasmaGeometry(model) {
   const ud = model.userData;
   if (ud.plasmaGeo) return ud.plasmaGeo;
@@ -290,63 +290,3 @@ function foilMat(kind, repeat = 1) {
   }));
 }
 // the service module's skin: aluminium panels, the two large radiator panels and the panel seams, wrapped around once
-function smSkinMat() {
-  if (APOLLO.smSkin) return APOLLO.smSkin;
-  const c = document.createElement("canvas");
-  c.width = 1024;
-  c.height = 512;
-  const g = c.getContext("2d");
-  g.fillStyle = "#c6cacf";
-  g.fillRect(0, 0, 1024, 512);
-  for (let k = 0; k < 6; k++) {
-    g.fillStyle = k % 2 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
-    g.fillRect((k * 1024) / 6, 0, 1024 / 6, 512);
-  } // six bays
-  g.fillStyle = "#eef0f2";
-  for (const x0 of [96, 608]) g.fillRect(x0, 60, 210, 330); // the ECS/EPS radiator panels (white), on opposite sides
-  g.strokeStyle = "rgba(160,166,172,0.9)";
-  g.lineWidth = 2;
-  for (const x0 of [96, 608])
-    for (let i = 1; i < 10; i++) {
-      g.beginPath();
-      g.moveTo(x0 + i * 21, 62);
-      g.lineTo(x0 + i * 21, 388);
-      g.stroke();
-    } // radiator tubes
-  g.strokeStyle = "rgba(40,44,48,0.55)";
-  g.lineWidth = 2;
-  for (let k = 0; k <= 6; k++) {
-    const x = (k * 1024) / 6;
-    g.beginPath();
-    g.moveTo(x, 0);
-    g.lineTo(x, 512);
-    g.stroke();
-  } // bay seams
-  for (const y of [40, 470]) {
-    g.beginPath();
-    g.moveTo(0, y);
-    g.lineTo(1024, y);
-    g.stroke();
-  }
-  g.fillStyle = "rgba(30,32,36,0.8)";
-  for (let k = 0; k < 220; k++)
-    g.fillRect((k * 197) % 1024, 40 + ((k * 89) % 430), 2, 2); // fasteners
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return (APOLLO.smSkin = new THREE.MeshStandardMaterial({
-    map: t,
-    roughness: 0.42,
-    metalness: 0.45,
-  }));
-}
-function lathe(pts, m, seg = 48) {
-  return new THREE.Mesh(
-    new THREE.LatheGeometry(
-      pts.map((p) => new THREE.Vector2(p[0], p[1])),
-      seg,
-    ),
-    m,
-  );
-}
-// a flat patch on the CM's cone (half-angle 32.7°, radius 1.91 m at y = 0.16): azimuth a from +Z, centred at height y

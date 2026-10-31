@@ -1,5 +1,5 @@
 // index-inline-1 27 — cfg
-// Lines 9877-10015 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 9999-10137 of readable/index-inline-1.pretty.js (statement-aligned).
 function arrive(
   M,
   cfg,

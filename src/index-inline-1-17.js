@@ -1,5 +1,5 @@
 // index-inline-1 17 — asc
-// Lines 5357-5701 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 5479-5823 of readable/index-inline-1.pretty.js (statement-aligned).
 function launchPhase(M, cfg, L, scMass, normal, opts = {}) {
   const S = LAUNCH_SITES[cfg.site];
   const t0 = M.t0;

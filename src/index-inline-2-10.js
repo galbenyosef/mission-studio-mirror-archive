@@ -1,5 +1,5 @@
 // index-inline-2 10 — best
-// Lines 2426-2730 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 2453-2757 of readable/index-inline-2.pretty.js (statement-aligned).
 function updateSky() {
   const camH = vadd(R.O, [
     R.camera.position.x,

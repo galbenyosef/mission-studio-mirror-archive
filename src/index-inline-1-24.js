@@ -1,5 +1,5 @@
 // index-inline-1 24 — ent
-// Lines 8913-9180 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 9035-9302 of readable/index-inline-1.pretty.js (statement-aligned).
 function shellParts(M, SC, ship, ent, site, tEnd) {
   const edl = SC.edl,
     sc = SC.model,

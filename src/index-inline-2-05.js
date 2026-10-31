@@ -1,5 +1,5 @@
 // index-inline-2 05 — math
-// Lines 966-1313 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 979-1328 of readable/index-inline-2.pretty.js (statement-aligned).
 function atmosTables(A) {
   const Rt = A.Rg + A.top,
     H = Math.sqrt(Rt * Rt - A.Rg * A.Rg);
@@ -230,7 +230,7 @@ function atmosUniforms(name, later) {
     A.U.tMS.value = A.texM;
     A.U.tSkyI.value = A.texI;
   };
-  if (later) (window.requestIdleCallback || ((f) => setTimeout(f, 200)))(ready);
+  if (later) whenIdle(ready, 2000);
   else ready();
   return A.U;
 }
@@ -338,7 +338,10 @@ vec3 aDisplay(vec3 S) {
   vec3 x = S * aWB * aGrade.x; float l = dot(x, vec3(0.2126, 0.7152, 0.0722));
   x = max(mix(vec3(l), x, aGrade.y), 0.0);
   return x / (1.0 + x * aGrade.z);
-}`;
+}
+// the air's light in front of a surface dist km away: at the ground's own exposure close by (the sky's grade would veil
+// the ground a few kilometres off three times over), going over to the sky's look far off, where the ground meets the sky
+vec3 aHaze(vec3 S, float dist) { return mix(S * aWB * aExpo, aDisplay(S), smoothstep(20.0, 200.0, dist)); }`;
 
 // ==== 20_scene.js
 // ============================================================================
@@ -347,4 +350,3 @@ vec3 aDisplay(vec3 S) {
 // World units = km, axes = J2000 ecliptic. Floating origin: everything is
 // placed relative to R.O (heliocentric km, double precision) each frame.
 // ============================================================================
-const R = { O: [0, 0, 0], helio: {}, texLoaded: 0 };

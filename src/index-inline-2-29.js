@@ -1,336 +1,280 @@
 // index-inline-2 29 — add
-// Lines 8170-8503 of readable/index-inline-2.pretty.js (statement-aligned).
-const STAGE_LOOK = {
-  // the booster section: the skirt round the foot of the tank (3 m up), the two engine fairings on its sides, a dark base
-  atlasBooster(g) {
-    const steel = mat("#b3b8be", "metal"),
-      dark = mat("#2b2c2f", "dark");
-    const skirt = cyl(
-      1.6,
-      1.58,
-      3.0,
-      mat("#b3b8be", "metal", { side: THREE.DoubleSide }),
-      48,
-      true,
-    );
-    g.add(skirt); // (an open ring once it slides off the tank)
-    const base = new THREE.Mesh(new THREE.CircleGeometry(1.6, 48), dark);
-    base.rotation.x = Math.PI / 2;
-    base.position.y = 0.01;
-    g.add(base);
-    for (const s of [-1, 1]) {
-      const pod = cyl(0.82, 0.82, 2.1, steel, 24);
-      pod.position.set(s * 1.6, 0, 0);
-      g.add(pod);
-      const top = new THREE.Mesh(
-        new THREE.SphereGeometry(0.82, 24, 10, 0, TAU, 0, Math.PI / 2),
-        steel,
-      );
-      top.position.set(s * 1.6, 2.1, 0);
-      top.scale.y = 1.05;
-      g.add(top); // the fairing's rounded top
-      const pb = new THREE.Mesh(new THREE.CircleGeometry(0.82, 24), dark);
-      pb.rotation.x = Math.PI / 2;
-      pb.position.set(s * 1.6, 0.01, 0);
-      g.add(pb);
-    }
-  },
-  // the sustainer: the steel tank, the vernier engines (±Z) just above the skirt, a cone up to the Agena
-  atlasSustainer(g) {
-    const tank = g.children[0];
-    if (tank && tank.isMesh) tank.material = atlasSteelMat();
-    for (const s of [-1, 1]) {
-      const v = new THREE.Group();
-      v.position.set(0, 2.5, s * 1.6);
-      v.rotation.x = -s * 0.25;
-      g.add(v); // canted outboard
-      v.add(box(0.22, 0.18, 0.22, mat("#7d8288", "metal")));
-      const b = bell(
-        0.38,
-        0.11,
-        mat("#3a3b3f", "metal", { side: THREE.DoubleSide }),
-      );
-      b.position.y = -0.38;
-      v.add(b);
-    }
-    const ring = cyl(1.535, 1.535, 0.12, mat("#8f949a", "metal"), 48, true);
-    ring.position.y = 19.0 - 0.06;
-    g.add(ring); // where the cone meets the tank
-  },
-  // the Agena-D: aft rack (y 0–0.7) round the top of the engine, propellant tanks (0.7–4.2), forward section (4.2–5.4)
-  agenaD(g) {
-    const body = g.children[0];
-    if (body && body.isMesh) g.remove(body);
-    const silver = mat("#d3d6da", "metal"),
-      white = mat("#e7e6e1", "paint"),
-      grey = mat("#8d9298", "metal"),
-      dark = mat("#2e3034", "dark");
-    const tanks = cyl(0.76, 0.76, 3.5, white, 40);
-    tanks.position.y = 0.7;
-    g.add(tanks);
-    const fwd = cyl(0.76, 0.76, 1.2, silver, 40);
-    fwd.position.y = 4.2;
-    g.add(fwd);
-    for (let k = 0; k < 8; k++) {
-      const p = box(0.32, 0.5, 0.02, k % 2 ? dark : mat("#bfc3c8", "metal"));
-      const a = ((k + 0.5) * TAU) / 8;
-      p.position.set(Math.sin(a) * 0.765, 4.45, Math.cos(a) * 0.765);
-      p.rotation.y = a;
-      g.add(p);
-    } // equipment panels
-    const band = cyl(0.77, 0.77, 0.08, grey, 40, true);
-    band.position.y = 4.18;
-    g.add(band);
-    // the aft rack: rings and struts round the engine, the pressure spheres, the jets on the rim
-    const rim = cyl(0.76, 0.76, 0.08, grey, 40, true);
-    rim.position.y = 0.62;
-    g.add(rim);
-    const foot = cyl(0.55, 0.55, 0.06, grey, 24, true);
-    foot.position.y = 0.04;
-    g.add(foot);
-    for (let k = 0; k < 8; k++) {
-      const a = (k * TAU) / 8,
-        b = ((k + 1) * TAU) / 8;
-      const st = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.02, 0.02, 1, 6),
-          grey,
-        ),
-        p0 = new THREE.Vector3(Math.sin(a) * 0.74, 0.62, Math.cos(a) * 0.74),
-        p1 = new THREE.Vector3(Math.sin(b) * 0.53, 0.07, Math.cos(b) * 0.53);
-      st.scale.y = p0.distanceTo(p1);
-      st.position.copy(p0).add(p1).multiplyScalar(0.5);
-      st.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        p1.clone().sub(p0).normalize(),
-      );
-      g.add(st);
-    }
-    for (const a of [0.6, 2.2, 3.7, 5.3]) {
-      const s = new THREE.Mesh(
-        new THREE.SphereGeometry(0.17, 16, 12),
-        mat("#c7a24f", "gold"),
-      );
-      s.position.set(Math.sin(a) * 0.5, 0.36, Math.cos(a) * 0.5);
-      g.add(s);
-    }
-    for (const a of [0, Math.PI]) {
-      const j = box(0.16, 0.14, 0.16, grey);
-      j.position.set(Math.sin(a) * 0.82, 0.25, Math.cos(a) * 0.82);
-      g.add(j);
-    }
-    const chamber = cyl(0.2, 0.2, 0.55, mat("#6a6e74", "metal"), 16);
-    chamber.position.y = 0.0;
-    g.add(chamber);
-    // the spacecraft adapter on top
-    const ad = cyl(0.76, 0.6, 0.35, grey, 32);
-    ad.position.y = 5.4;
-    g.add(ad);
-  },
-};
-
-// ==== 36_mariner.js
-// ============================================================================
-// Mariner 4 (1964): an octagonal bus 1.27 m across its corners and 0.457 m high, louvres for its temperature on four of its
-// sides; four solar panels, 1.76 × 0.90 m, from the top edge of the other four, each with a solar pressure vane at its tip
-// (the vanes steered it a little by the push of sunlight); the elliptical high-gain dish, 1.17 × 0.53 m, on top; the low-
-// gain antenna on a mast, 2.89 m from the foot of the bus to its tip, the magnetometer part way up; the television camera
-// on its scan platform under the bus; the midcourse motor's nozzle on one side. For launch the panels are folded up
-// round the mast, inside the shroud (flags.stowed); they open out after the spacecraft leaves the Agena (flags.deployT).
-// y = 0 at the foot of the bus.
-// ============================================================================
-function marinerPanel() {
-  // a solar panel along +X from its hinge, the cells on top; its vane at the tip (userData.vane)
+// Lines 8001-8278 of readable/index-inline-2.pretty.js (statement-aligned).
+function hubbleModel(flags = {}) {
   const g = new THREE.Group(),
-    L = 1.76,
-    W = 0.9;
-  const cells = box(L, 0.03, W, mat("#1b2550", "solar"));
-  cells.position.set(L / 2, 0, 0);
-  cells.geometry.translate(0, -0.015, 0);
-  g.add(cells);
-  const frame = box(L + 0.02, 0.035, 0.03, mat("#c8ccd1", "metal"));
-  for (const z of [-W / 2, W / 2]) {
-    const f = frame.clone();
-    f.position.set(L / 2, -0.02, z);
-    g.add(f);
-  }
-  for (let i = 1; i < 6; i++) {
-    const ln = box(0.012, 0.032, W, mat("#9aa0a8", "metal"));
-    ln.position.set((i * L) / 6, -0.019, 0);
-    g.add(ln);
-  }
-  const vane = new THREE.Group();
-  vane.position.set(L, 0, 0);
-  g.add(vane);
-  const v = box(0.62, 0.012, 0.66, mat("#e3e5e8", "metal"));
-  v.position.set(0.31, 0, 0);
-  v.geometry.translate(0, -0.006, 0);
-  vane.add(v);
-  const act = cyl(0.03, 0.03, 0.1, mat("#5c6066", "metal"), 8);
-  act.rotation.x = Math.PI / 2;
-  act.position.set(0.02, 0.02, 0);
-  vane.add(act);
-  g.userData.vane = vane;
-  return g;
-}
-function marinerModel(flags = {}) {
-  const g = new THREE.Group(),
-    H = 0.457,
-    Rc = 0.635,
-    Rf = Rc * Math.cos(Math.PI / 8);
-  const bus = new THREE.Mesh(
-    new THREE.CylinderGeometry(Rc, Rc, H, 8, 1),
-    mat("#3c3f45", "metal", { flatShading: true }),
+    H = HST,
+    dark = mat("#141517", "dark", { side: THREE.DoubleSide });
+  // aft bulkhead and shroud, the ring of bays, the forward shell and light shield in their blankets
+  const shroud = cyl(H.R, H.R, H.es - H.aft, hstShroudMat(), 48, true);
+  shroud.position.y = H.aft;
+  g.add(shroud);
+  const bulk = new THREE.Mesh(
+    new THREE.CircleGeometry(H.R, 48),
+    mat("#b8bcc1", "metal"),
   );
-  bus.rotation.y = Math.PI / 8;
-  bus.position.y = H / 2;
-  g.add(bus);
-  // the sides: louvres (bright slats) between the panel hinges, gold foil where the panels are
-  for (let k = 0; k < 8; k++) {
-    const a = (k * Math.PI) / 4,
-      side = new THREE.Group();
-    side.position.set(
-      Math.sin(a) * (Rf + 0.006),
-      H / 2,
-      Math.cos(a) * (Rf + 0.006),
+  bulk.rotation.x = Math.PI / 2;
+  bulk.position.y = H.aft;
+  g.add(bulk);
+  for (let k = 0; k < 3; k++) {
+    const b = box(0.12, 0.08, H.R * 1.9, mat("#8b9096", "metal"));
+    b.rotation.y = (k * TAU) / 3;
+    b.position.y = H.aft - 0.08;
+    g.add(b);
+  } // its radial beams
+  const bays = new THREE.Mesh(
+    new THREE.CylinderGeometry(H.R, H.R, H.fwd - H.es, 12, 1, true),
+    mat("#c3c7cc", "metal", { flatShading: true }),
+  );
+  bays.position.y = (H.es + H.fwd) / 2;
+  bays.rotation.y = TAU / 24;
+  g.add(bays);
+  for (let k = 0; k < 12; k++) {
+    const a = (k * TAU) / 12,
+      d = box(0.9, 0.85, 0.02, mat("#d8dbdf", "metal"));
+    d.position.set(
+      Math.sin(a) * H.R * 0.985,
+      H.es + 0.12,
+      Math.cos(a) * H.R * 0.985,
     );
-    side.rotation.y = a;
-    g.add(side);
-    if (k % 2) {
-      side.add(box(0.4, 0.36, 0.01, mat("#2a2c30", "dark")));
-      for (let i = 0; i < 6; i++) {
-        const s = box(0.05, 0.34, 0.015, mat("#e2e4e8", "metal"));
-        s.position.set(-0.16 + i * 0.064, -0.17, 0.008);
-        s.rotation.y = 0.5;
-        side.add(s);
-      }
-    } else {
-      const f = box(0.46, 0.4, 0.01, foilMat("gold", 1));
-      f.position.y = -0.2;
-      side.add(f);
-    }
+    d.rotation.y = a;
+    g.add(d); // the bays' doors
+    const hd = box(0.5, 0.04, 0.04, hstYellow());
+    hd.position.set(
+      Math.sin(a) * (H.R + 0.05),
+      H.es + 0.55,
+      Math.cos(a) * (H.R + 0.05),
+    );
+    hd.rotation.y = a;
+    g.add(hd);
   }
-  const lid = new THREE.Mesh(
-    new THREE.CylinderGeometry(Rc * 0.98, Rc * 0.98, 0.03, 8),
-    mat("#9da2a8", "metal"),
+  const step = new THREE.Mesh(
+    new THREE.RingGeometry(H.r, H.R, 48),
+    mat("#a4a9af", "paint", { side: THREE.DoubleSide, roughness: 0.7 }),
   );
-  lid.rotation.y = Math.PI / 8;
-  lid.position.y = H + 0.015;
-  g.add(lid);
-  // high-gain dish (elliptical) on a short support, tilted; low-gain antenna mast with the magnetometer
-  const hga = new THREE.Group();
-  hga.position.set(0, H + 0.3, 0.08);
-  hga.rotation.x = 0.35;
-  g.add(hga);
-  const dish = new THREE.Mesh(
-    new THREE.SphereGeometry(0.62, 32, 8, 0, TAU, 0, 0.62),
-    mat("#eef0f2", "paint", { side: THREE.DoubleSide }),
-  );
-  dish.rotation.x = Math.PI;
-  dish.position.y = 0.62;
-  dish.scale.set(1.62, 1, 0.74);
-  hga.add(dish); // 1.17 × 0.53 m
-  for (const [x, z] of [
-    [-0.18, -0.08],
-    [0.18, -0.08],
-    [0, 0.14],
-  ])
-    hga.add(
-      m20Bar(
-        [x * 1.6, -0.3, z],
-        [x * 0.3, 0.02, z * 0.3],
-        0.012,
-        mat("#9aa0a6", "metal"),
-      ),
-    ); // its tripod
-  const feed = cyl(0.025, 0.025, 0.32, mat("#7f848a", "metal"), 8);
-  feed.position.y = 0.05;
-  hga.add(feed);
-  const mx = -0.3,
-    mz = -0.25,
-    top = 2.89;
-  g.add(
-    m20Bar([mx, H, mz], [mx, top - 0.12, mz], 0.022, mat("#c9cdd2", "metal")),
-  );
-  const lga = cyl(0.06, 0.06, 0.12, mat("#e6e6e2", "paint"), 12);
-  lga.position.set(mx, top - 0.12, mz);
-  g.add(lga);
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(0.06, 12, 6, 0, TAU, 0, Math.PI / 2),
-    mat("#e6e6e2", "paint"),
-  );
-  dome.position.set(mx, top, mz);
-  g.add(dome);
-  const mag = new THREE.Mesh(
-    new THREE.SphereGeometry(0.07, 14, 10),
-    mat("#d7a94a", "gold"),
-  );
-  mag.position.set(mx, 1.75, mz);
-  g.add(mag);
-  // the scan platform and the camera under the bus; the midcourse motor's nozzle
-  const plat = cyl(0.2, 0.2, 0.04, mat("#55595f", "metal"), 16);
-  plat.position.set(0.15, -0.06, 0.1);
-  g.add(plat);
-  const cam = cyl(0.07, 0.07, 0.32, mat("#2c2e33", "dark"), 14);
-  cam.rotation.z = 0.5;
-  cam.position.set(0.15, -0.3, 0.1);
-  g.add(cam);
-  const noz = bell(
+  step.rotation.x = -Math.PI / 2;
+  step.position.y = H.fwd;
+  g.add(step); // the bays' forward face, blanketed
+  const tube = cyl(H.r, H.r, H.door - H.fwd, hstBlanketMat(), 48, true);
+  tube.position.y = H.fwd;
+  g.add(tube);
+  const rim = cyl(
+    H.r + 0.03,
+    H.r + 0.03,
     0.12,
-    0.05,
-    mat("#4a4c50", "metal", { side: THREE.DoubleSide }),
+    mat("#9ea3a9", "metal"),
+    48,
+    true,
   );
-  noz.position.set(0, -0.12, 0);
-  g.add(noz);
-  // the four solar panels on the louvre-free sides (±X, ±Z)
-  const panels = [];
+  rim.position.y = H.door - 0.12;
+  g.add(rim);
+  // inside the aperture: the dark light shield and its baffles, the secondary mirror's spider far down
+  const inside = cyl(H.r - 0.02, H.r - 0.02, 3.0, dark, 32, true);
+  inside.position.y = H.door - 3.0;
+  g.add(inside);
   for (let k = 0; k < 4; k++) {
-    const a = (k * Math.PI) / 2,
-      piv = new THREE.Group();
-    piv.position.set(Math.sin(a) * Rf, H - 0.02, Math.cos(a) * Rf);
-    piv.rotation.y = a - Math.PI / 2;
-    g.add(piv);
-    const p = marinerPanel();
-    piv.add(p);
-    panels.push({ p, vane: p.userData.vane });
+    const b = new THREE.Mesh(
+      new THREE.RingGeometry(H.r - 0.22, H.r - 0.02, 32),
+      dark,
+    );
+    b.rotation.x = -Math.PI / 2;
+    b.position.y = H.door - 0.4 - k * 0.7;
+    g.add(b);
   }
-  // folded (f = 0): panels up along the mast, vanes folded back flat; deployed (1): out flat, the vanes turned 25°
+  const ap = new THREE.Mesh(
+    new THREE.CircleGeometry(H.r - 0.02, 32),
+    mat("#050506", "dark"),
+  );
+  ap.rotation.x = -Math.PI / 2;
+  ap.position.y = H.door - 3.0;
+  g.add(ap);
+  // the aperture door, hinged at +Z
+  const dg = new THREE.Group();
+  dg.position.set(0, H.door + 0.06, H.r);
+  g.add(dg);
+  const door = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.52, 1.52, 0.1, 40),
+    mat("#dfe2e5", "metal"),
+  );
+  door.position.set(0, 0, -H.r);
+  dg.add(door);
+  const hinge = cyl(0.08, 0.08, 0.6, mat("#8f949a", "metal"), 10);
+  hinge.rotation.z = Math.PI / 2;
+  hinge.position.set(-0.3, 0, 0);
+  dg.add(hinge);
+  if (flags.doorT != null)
+    g.userData.animate = (t) => {
+      dg.rotation.x =
+        105 * DEG * smoothstep(clamp((t - flags.doorT) / 60, 0, 1));
+    }; // up and over, forward
+  else if (flags.door) dg.rotation.x = 105 * DEG;
+  // handrails: rings round the light shield and the shroud, rails along them; the magnetic torquers; sun sensors; the
+  // low-gain antennas; trunnions; the grapple fixture
+  for (const y of [3.2, 5.6]) {
+    const t = new THREE.Mesh(
+      new THREE.TorusGeometry(H.r + 0.1, 0.018, 6, 64),
+      hstYellow(),
+    );
+    t.rotation.x = Math.PI / 2;
+    t.position.y = y;
+    g.add(t);
+  }
+  for (const y of [H.aft + 0.4]) {
+    const t = new THREE.Mesh(
+      new THREE.TorusGeometry(H.R + 0.1, 0.02, 6, 64),
+      hstYellow(),
+    );
+    t.rotation.x = Math.PI / 2;
+    t.position.y = y;
+    g.add(t);
+  }
+  for (let k = 0; k < 8; k++) {
+    const a = ((k + 0.5) * TAU) / 8,
+      r = cyl(0.02, 0.02, 2.8, hstYellow(), 6);
+    r.position.set(
+      Math.sin(a) * (H.R + 0.1),
+      H.aft + 0.4,
+      Math.cos(a) * (H.R + 0.1),
+    );
+    g.add(r);
+  }
+  for (const a of [0.6, 2.2, 3.8, 5.3]) {
+    const r = cyl(0.018, 0.018, 3.4, hstYellow(), 6);
+    r.position.set(Math.sin(a) * (H.r + 0.1), 2.2, Math.cos(a) * (H.r + 0.1));
+    g.add(r);
+  }
+  for (let k = 0; k < 4; k++) {
+    const a = Math.PI / 4 + (k * Math.PI) / 2,
+      m = box(0.1, 2.5, 0.1, mat("#5b5f65", "metal"));
+    m.position.set(
+      Math.sin(a) * (H.r + 0.14),
+      -0.6,
+      Math.cos(a) * (H.r + 0.14),
+    );
+    g.add(m);
+  }
+  for (const x of [-0.45, 0.45]) {
+    const s = box(0.16, 0.12, 0.12, mat("#2c2e32", "dark"));
+    s.position.set(x, H.door - 0.3, H.r + 0.06);
+    g.add(s);
+  }
+  for (const [y, z, up] of [
+    [H.door - 1.0, -(H.r + 0.05), 0],
+    [H.aft - 0.05, -1.2, 1],
+  ]) {
+    const c = cyl(0.12, 0.02, 0.3, mat("#d9d9d4", "paint"), 12);
+    if (up) {
+      c.rotation.x = Math.PI;
+      c.position.set(0.6, y, z);
+    } else {
+      c.rotation.x = -Math.PI / 2;
+      c.position.set(0, y, z);
+    }
+    g.add(c);
+  }
+  for (const s of [-1, 1]) {
+    const tr = cyl(0.1, 0.1, 0.45, hstSilver(), 10);
+    tr.rotation.z = Math.PI / 2;
+    tr.position.set(s * (H.R + 0.22), H.es + 0.3, 0);
+    g.add(tr);
+  } // aft trunnions
+  const keel = cyl(0.1, 0.1, 0.4, hstSilver(), 10);
+  keel.rotation.x = Math.PI / 2;
+  keel.position.set(0, -0.2, -(H.r + 0.2));
+  g.add(keel);
+  const fix = cyl(0.25, 0.25, 0.15, mat("#e0e0e0", "metal"), 12);
+  fix.rotation.x = Math.PI / 2;
+  fix.position.set(0, -3.0, H.R + 0.07);
+  g.add(fix); // grapple fixture
+  const pin = cyl(0.04, 0.04, 0.3, mat("#d0d0d0", "metal"), 8);
+  pin.rotation.x = Math.PI / 2;
+  pin.position.set(0, -3.0, H.R + 0.27);
+  g.add(pin);
+  // the solar array wings (±X) and the high-gain antennas (±Z), from the aft end of the forward shell
+  const wings = [-1, 1].map((s) => {
+    const piv = new THREE.Group();
+    piv.position.set(s * (H.r + 0.12), H.fwd + 0.15, 0);
+    g.add(piv);
+    const w = hstWing();
+    if (s < 0) w.rotation.z = Math.PI;
+    piv.add(w);
+    return { piv, w, s };
+  }); // (both wings' cells face +Z)
+  const ants = [-1, 1].map((s) => {
+    const piv = new THREE.Group();
+    piv.position.set(0, H.fwd + 0.3, s * (H.r + 0.15));
+    g.add(piv);
+    const a = hstAntenna();
+    if (s < 0) a.rotation.y = Math.PI;
+    piv.add(a);
+    return { piv, s, dish: a.userData.dish };
+  });
+  // f: 0 stowed (masts and drums folded forward along the forward shell, the blankets rolled up; the antenna masts along the
+  // shell and light shield, dishes forward), 1 deployed. Wings swing out to f 0.25 and unroll to f 1; antennas out by f 0.4.
   const pose = (f) => {
-    for (const { p, vane } of panels) {
-      p.rotation.z = (Math.PI / 2) * (1 - f);
-      vane.rotation.z = Math.PI * (1 - f) + 0.44 * f;
+    const sw = smoothstep(clamp(f / 0.25, 0, 1)),
+      un = smoothstep(clamp((f - 0.25) / 0.75, 0, 1)),
+      bm = smoothstep(clamp(f / 0.4, 0, 1));
+    for (const { piv, w, s } of wings) {
+      piv.rotation.z = ((s * Math.PI) / 2) * (1 - sw);
+      w.userData.unroll(un);
+    }
+    for (const { piv, s, dish } of ants) {
+      piv.rotation.x = ((-s * Math.PI) / 2) * (1 - bm);
+      dish.rotation.x = (Math.PI / 2) * (1 - bm);
     }
   };
-  if (flags.deployT != null)
-    g.userData.animate = (t) =>
-      pose(smoothstep(clamp((t - flags.deployT - 20) / 60, 0, 1)));
-  pose(flags.stowed || flags.deployT != null ? 0 : 1);
-  g.userData.len = H;
+  if (flags.arrays && flags.deployable) g.userData.deploy = pose;
+  pose(flags.arrays ? (flags.deployable ? 0 : 1) : 0);
+  g.userData.len = 13.2;
+  g.userData.yc0 = 0;
   return g;
 }
 
-// ==== 37_tianwen.js
+// ==== 35_atlas.js
 // ============================================================================
-// Tianwen-1 (2020–21), metres: the orbiter, which carried the entry capsule to Mars on its top; the capsule, heat shield
-// and backshell; inside it the landing platform with the Zhurong rover on its deck.
-// Published: the orbiter is an outer hexagonal prism round a central load-bearing cone, with a 3000 N main engine; the
-// capsule's heat shield is a blunt 70° sphere-cone 3.4 m across, and a trim wing on the backshell swings out before the
-// parachute opens; the platform comes down on a 7500 N throttleable engine and lets the rover down a two-rail ramp;
-// Zhurong is 1.85 m tall and about 2.6 × 3.0 m with its four solar wings open, 240 kg, on six wheels with an active
-// suspension, with two round windows on its deck over its heat-storing tanks. The rest (the orbiter's size, its wings and
-// antenna, the backshell's shape, the platform's) is estimated and made to fit: the platform and the folded rover inside
-// the capsule, the capsule on the orbiter, the whole in Long March 5's fairing.
+// Atlas LV-3 Agena-D as it launched Mariner 4 (1964), drawn over its stages' plain geometry (src/vehicles.js, look; called
+// from buildStage with the stage's group, bottom at y = 0). The Atlas: a stainless-steel balloon tank 3.05 m across, its
+// sheets welded in rings; the booster section a skirt round the foot of the tank with the two booster engines in fairings
+// on its sides (±X), making the base 4.9 m wide; the sustainer engine in the middle, under the tank; two small vernier
+// engines low on the tank's sides (±Z); a cone up to the Agena. The Agena-D, 1.52 m across: the aft rack, an open frame
+// round the engine's top with the pressure spheres and the attitude-control jets; the propellant tanks; the forward
+// equipment section; the adapter the spacecraft sits on.
 // ============================================================================
-const TW = { mats: {} };
-const twMat = (key, make) => TW.mats[key] || (TW.mats[key] = make());
-// a canvas texture for flat parts (upright on a PlaneGeometry)
-function twTex(w, h, fn) {
+const ATLAS = { mats: {} };
+let atlasSeed = 21;
+const atlasRnd = () =>
+  (atlasSeed = (atlasSeed * 9301 + 49297) % 233280) / 233280;
+// the Atlas tank's steel: faint seams between the welded rings (about 0.8 m tall) and along each sheet
+function atlasSteelMat() {
+  if (ATLAS.mats.steel) return ATLAS.mats.steel;
   const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  fn(c.getContext("2d"), w, h);
+  c.width = 512;
+  c.height = 1024;
+  const g = c.getContext("2d");
+  g.fillStyle = "#bcc1c7";
+  g.fillRect(0, 0, 512, 1024);
+  atlasSeed = 21;
+  for (let i = 0; i < 1600; i++) {
+    g.fillStyle =
+      atlasRnd() > 0.5 ? "rgba(255,255,255,0.05)" : "rgba(40,44,50,0.05)";
+    g.fillRect(
+      atlasRnd() * 512,
+      atlasRnd() * 1024,
+      1 + atlasRnd() * 3,
+      6 + atlasRnd() * 40,
+    );
+  } // the sheets' grain, along the tank
+  g.fillStyle = "rgba(85,90,96,0.45)";
+  for (let y = 0; y < 1024; y += 43) g.fillRect(0, y, 512, 2);
+  for (let x = 0; x < 512; x += 128) g.fillRect(x, 0, 2, 1024);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1, 1);
+  t.anisotropy = 4;
+  return (ATLAS.mats.steel = new THREE.MeshStandardMaterial({
+    map: t,
+    roughness: 0.3,
+    metalness: 0.75,
+  }));
 }
-// the national flag of China (3:2): the large star, and four small ones each pointing at the large one's centre

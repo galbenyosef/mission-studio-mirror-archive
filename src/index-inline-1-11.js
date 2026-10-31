@@ -1,5 +1,5 @@
 // index-inline-1 11 — opt
-// Lines 3462-3671 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 3584-3793 of readable/index-inline-1.pretty.js (statement-aligned).
 function optimizeAscent(base) {
   const run = (k, rec) => {
     const stack = cloneStack(base.stack);

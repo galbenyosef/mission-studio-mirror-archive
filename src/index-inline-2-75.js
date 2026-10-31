@@ -1,282 +1,351 @@
-// index-inline-2 75 — input
-// Lines 21532-21811 of readable/index-inline-2.pretty.js (statement-aligned).
-function fieldEl(f) {
-  const cfg = SETUP.cfg;
-  const wrap = h("label", { class: "f" + (f.wide ? " wide" : "") });
-  const lab = h(
-    "span",
-    null,
-    f.label,
-    f.unit ? h("em", null, ` (${f.unit})`) : null,
-  );
-  wrap.append(lab);
-  let input;
-  if (f.kind === "preset") {
-    input = h(
-      "select",
-      null,
-      h("option", { value: "" }, "Choose a known site…"),
-      ...f.list.map((x, i) => h("option", { value: i }, x[0])),
-    );
-    const cur = gp(cfg, f.path);
-    const idx = cur
-      ? f.list.findIndex(
-          (x) =>
-            Math.abs(x[1] - cur.lat) < 0.01 && Math.abs(x[2] - cur.lon) < 0.01,
-        )
-      : -1;
-    if (idx >= 0) input.value = idx;
-    input.addEventListener("change", () => {
-      if (input.value === "") return;
-      const x = f.list[+input.value];
-      const o = gp(SETUP.cfg, f.path) || {};
-      o.lat = x[1];
-      o.lon = x[2];
-      o.name = x[0].replace(/\s*\(.*\)/, "");
-      if (x[3] != null) o.elev = x[3];
-      sp(SETUP.cfg, f.path, o);
-      renderDetail();
-      schedulePlan();
-    });
-    wrap.append(input);
-    return wrap;
+// index-inline-2 75 — cam
+// Lines 21643-21991 of readable/index-inline-2.pretty.js (statement-aligned).
+function updateCamera(t, realDt) {
+  const cam = R.camera;
+  {
+    const d0 = VSHIFT;
+    applyViewShift();
+    if (VSHIFT !== d0) cam.updateProjectionMatrix();
   }
-  const val = f.kind === "calc" ? f.get(cfg) : gp(cfg, f.path);
-  if (f.type === "select") {
-    input = h(
-      "select",
-      null,
-      ...f.options.map(([v, l]) => h("option", { value: v }, l)),
+  if (directed() && MV.md) directorUpdate(t, realDt);
+  let P = targetPos(CAM.target, t);
+  if (!P) P = targetPos("obj:ship", t) || helio("earth", t).r; // target not in flight yet (e.g. a lander still docked): follow the ship meanwhile
+  // transition between targets
+  let dist = CAM.dist;
+  if (CAM.trans) {
+    const f = clamp((clockMs() - CAM.trans.t0) / CAM.trans.dur, 0, 1);
+    const e = f * f * (3 - 2 * f);
+    const from = targetPos(CAM.trans.fromId, t) || CAM.trans.fromP;
+    P = vlerp(from, P, e);
+    dist = Math.exp(
+      Math.log(CAM.trans.distFrom) +
+        (Math.log(CAM.trans.distTo) - Math.log(CAM.trans.distFrom)) * e,
     );
-    input.value = String(val);
-  } else if (f.type === "datetime") {
-    input = h("input", {
-      type: "datetime-local",
-      value: val ? isoLocalInput(isoToT(val)) : "",
-      step: 60,
-    });
-  } else if (f.type === "number") {
-    input = h("input", {
-      type: "number",
-      value: val ?? "",
-      min: f.min,
-      max: f.max,
-      step: f.step || "any",
-      inputmode: "decimal",
-    });
-  } else input = h("input", { type: "text", value: val ?? "" });
-  const origV = f.kind === "calc" ? f.get(SETUP.orig) : gp(SETUP.orig, f.path);
-  const mark = () => {
-    const cur = f.kind === "calc" ? f.get(SETUP.cfg) : gp(SETUP.cfg, f.path);
-    wrap.classList.toggle(
-      "changed",
-      JSON.stringify(cur) !== JSON.stringify(origV),
-    );
-  };
-  input.addEventListener("change", () => {
-    const old = f.kind === "calc" ? f.get(SETUP.cfg) : gp(SETUP.cfg, f.path);
-    let v = input.value;
-    if (f.type === "number" || f.kind === "calc") {
-      v = parseFloat(v);
-      if (!isFinite(v)) {
-        input.value = old;
-        return;
+    if (f >= 1) CAM.trans = null;
+  }
+  const rT = targetRadius(CAM.target);
+  if (CAM.mode === "ground") {
+    const g = groundSite(t);
+    if (g) {
+      const Bp = helio(g.body, t).r;
+      const site = sitePosEcl(g.body, g.lat, g.lon, g.alt, t);
+      const Pobs = vadd(Bp, site);
+      R.O = Pobs;
+      cam.position.set(0, 0, 0);
+      const lf = localFrame(g.body, site, t);
+      _up.set(lf.up[0], lf.up[1], lf.up[2]);
+      cam.up.copy(_up);
+      if (CAM.ground.track) {
+        const d = vsub(P, Pobs);
+        _look.set(d[0], d[1], d[2]);
+        if (_look.length() < 1e-6) _look.copy(_up);
+        cam.lookAt(_look);
+        const dn = vunit(d);
+        CAM.ground.pitch = Math.asin(clamp(vdot(dn, lf.up), -1, 1));
+        CAM.ground.yaw = Math.atan2(vdot(dn, lf.east), vdot(dn, lf.north));
+      } else {
+        const cp = Math.cos(CAM.ground.pitch);
+        const d = vadd(
+          vadd(
+            vscale(lf.north, cp * Math.cos(CAM.ground.yaw)),
+            vscale(lf.east, cp * Math.sin(CAM.ground.yaw)),
+          ),
+          vscale(lf.up, Math.sin(CAM.ground.pitch)),
+        );
+        _look.set(d[0], d[1], d[2]);
+        cam.lookAt(_look);
       }
-      if (f.min != null) v = Math.max(f.min, v);
-      if (f.max != null) v = Math.min(f.max, v);
-      input.value = v;
+      if (CAM.roll) cam.rotateZ(CAM.roll);
+      CAM.groundInfo = g;
+      CAM.camDist = vnorm(vsub(P, Pobs));
+      return;
     }
-    if (f.type === "datetime") {
-      v = inputToIso(v);
-      if (!v || !isFinite(isoToT(v))) {
-        input.value = isoLocalInput(isoToT(old));
-        return;
+  }
+  CAM.groundInfo = null;
+  R.O = P;
+  if (directed() && MV.md && DIR.prm) {
+    const pose = poseFor(DIR.prm.mode, DIR.prm, P, t);
+    setPose(pose);
+    if (DIR.blend) {
+      const f = smoothstep((clockMs() - DIR.blend.t0) / DIR.blend.dur);
+      if (f >= 1) DIR.blend = null;
+      else {
+        const pT = cam.position.clone(),
+          qT = cam.quaternion.clone();
+        const pos = vlerp(
+          [DIR.blend.pos.x, DIR.blend.pos.y, DIR.blend.pos.z],
+          [pT.x, pT.y, pT.z],
+          f,
+        );
+        const safe = keepAboveGround(P, pos, t);
+        cam.position.set(safe[0], safe[1], safe[2]);
+        if (DIR.blend.center && pose.center) {
+          cam.up
+            .copy(DIR.blend.up)
+            .lerp(_up.set(pose.up[0], pose.up[1], pose.up[2]), f)
+            .normalize();
+          cam.lookAt(pose.look[0], pose.look[1], pose.look[2]);
+          if (CAM.roll) cam.rotateZ(CAM.roll);
+        } else cam.quaternion.slerpQuaternions(DIR.blend.quat, qT, f);
       }
     }
-    if (f.parse) v = f.parse(v);
-    if (f.kind === "calc") f.set(SETUP.cfg, v);
-    else sp(SETUP.cfg, f.path, v);
-    if (f.onSet) f.onSet(SETUP.cfg, v, old);
-    mark();
-    if (
-      ["launcher", "crew", "payloadMass"].includes(f.path) ||
-      /^scOverride/.test(f.path || "")
-    ) {
-      renderVehicleCard();
-      renderScCard();
+    const sk = DIR.shot && DIR.shot.shake,
+      sc = sk && activeCraft(t); // a cinematic shot's camera shaking as a camera would (app/51_cine.js)
+    if (sc) {
+      const [ax, ay] = cineShake(sk, sc, t, cam.position.length());
+      cam.rotateX(ax);
+      cam.rotateY(ay);
     }
-    if (f.path === "launch" || /legs\.0\.t$/.test(f.path)) drawPorkchop();
-    if ((f.path && f.path.startsWith("landMET")) || f.kind === "calc")
-      renderDetailSoft();
-    schedulePlan();
+    CAM.camDist =
+      DIR.prm.mode === "site" || DIR.prm.mode === "padcam"
+        ? cam.position.length()
+        : DIR.prm.dist;
+    return;
+  }
+  const minD = rT > 0 ? rT * 1.003 + 0.002 : 0.004;
+  dist = Math.max(dist, minD);
+  if (!CAM.trans) CAM.dist = Math.max(CAM.dist, minD);
+  const mode = directed() ? "chase" : CAM.mode;
+  setPose(
+    poseFor(mode, { az: CAM.az, el: CAM.el, dist, look: CAM.look }, P, t),
+  );
+  CAM.camDist = dist;
+}
+// ---------------- input ----------------
+function initCameraInput() {
+  const el = $("#gl");
+  const ptrs = new Map();
+  let pinch0 = null,
+    lastTap = 0;
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("pointerdown", (e) => {
+    el.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY,
+      b: e.button,
+      shift: e.shiftKey,
+    });
+    el.classList.add("dragging");
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      pinch0 = {
+        d: Math.hypot(a.x - b.x, a.y - b.y),
+        dist: CAM.dist,
+        lens: CAM.lens,
+        zk: DIR.zoomK,
+      };
+    }
   });
-  mark();
-  wrap.append(input);
-  return wrap;
-}
-function renderDetailSoft() {
-  const y = $("#setup").scrollTop;
-  renderDetail();
-  $("#setup").scrollTop = y;
-}
-// ---------------- vehicle & spacecraft cards ----------------
-function stackDeltaV(L, payload) {
-  const st = L.stages;
-  let m =
-    payload +
-    st.reduce((a, s) => a + s.dry + s.propMass, 0) +
-    L.jettison.reduce((a, j) => a + j.mass, 0);
-  let dv = 0,
-    i = 0;
-  const jet = L.jettison.reduce((a, j) => a + j.mass, 0);
-  if (st[0].parallel) {
-    const B = st[0],
-      Cc = st[1];
-    const FB = (B.thrustSL + B.thrustVac) / 2,
-      FC = (Cc.thrustSL + Cc.thrustVac) / 2;
-    const mdB = FB / (((B.ispSL + B.ispVac) / 2) * G0),
-      mdC = FC / (((Cc.ispSL + Cc.ispVac) / 2) * G0);
-    const tB = B.propMass / mdB;
-    const coreUsed = Cc.ignition ? 0 : Math.min(Cc.propMass * 0.9, mdC * tB);
-    const isp =
-      (FB + (Cc.ignition ? 0 : FC)) / ((mdB + (Cc.ignition ? 0 : mdC)) * G0);
-    const m1 = m - B.propMass - coreUsed;
-    dv += isp * G0 * Math.log(m / m1);
-    m = m1 - B.dry - jet;
-    const rem = Cc.propMass - coreUsed;
-    dv += Cc.ispVac * G0 * Math.log(m / (m - rem));
-    m -= rem + Cc.dry;
-    i = 2;
-  }
-  for (; i < st.length; i++) {
-    const s = st[i];
-    const isp = i === 0 ? (s.ispSL + s.ispVac) / 2 : s.ispVac;
-    dv += isp * G0 * Math.log(m / (m - s.propMass));
-    m -= s.propMass + s.dry;
-    if (i === 0) m -= jet;
-  }
-  return dv / 1000;
-}
-const SHORT_NAMES = {
-  shuttle: "Space Shuttle",
-  saturnV: "Saturn V",
-  sls1: "SLS Block 1",
-  lm5: "Long March 5",
-  atlasV541: "Atlas V 541",
-  atlasAgena: "Atlas-Agena",
-  falconHeavy: "Falcon Heavy",
-  starship: "Starship",
-  lvm3: "LVM3",
-};
-function shuttleSVG(L, cx, base, k, parts, variant) {
-  const S = L.stages[0],
-    E = L.stages[1],
-    low = S.booster.y0 - S.eng.len; // the boosters' nozzles stand on the ground
-  const Y = (yy) => base - (yy - low) * k,
-    cone = (x0, y0, len, rb, rt, col, extra = "") =>
-      `<path d="M${x0 - rb * k},${Y(y0)} L${x0 + rb * k},${Y(y0)} L${x0 + rt * k},${Y(y0 + len)} L${x0 - rt * k},${Y(y0 + len)}Z" fill="${col}" ${extra}/>`;
-  for (const sgn of [-1, 1]) {
-    const xb = cx + sgn * S.booster.offset * k;
-    parts.push(cone(xb, low, S.eng.len, S.eng.r * 0.85, 0.5, "#4a4c50"));
-    let yb = S.booster.y0;
-    for (const [len, rb, rt, col] of S.geom) {
-      parts.push(cone(xb, yb, len, rb, rt, col));
-      yb += len;
+  el.addEventListener("pointermove", (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x,
+      dy = e.clientY - p.y;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (ptrs.size === 2 && pinch0) {
+      const [a, b] = [...ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const k = pinch0.d / Math.max(d, 1);
+      if (CAM.mode === "ground") CAM.lens = clamp(pinch0.lens / k, 8, 3200);
+      else if (directed()) {
+        if (CAM.mode === "cine") setMode("auto");
+        DIR.zoomK = clamp(pinch0.zk * k, 0.05, 2e4);
+      } else CAM.dist = clamp(pinch0.dist * k, 0.004, 5e10);
+      CAM.trans = null;
+      applyLens();
+      syncCamUI();
+      return;
     }
-  }
-  let ye = 0;
-  for (const [len, rb, rt, col] of E.geom) {
-    parts.push(
-      cone(
-        cx,
-        ye,
-        len,
-        rb,
-        rt,
-        variant === "sts1" && col !== "#4a4a4a" ? "#e9e7e0" : col,
-        'stroke="rgba(0,0,0,.25)" stroke-width=".4"',
-      ),
-    );
-    ye += len;
-  } // STS-1 and STS-2 flew painted tanks
-  // the orbiter, seen from above its payload bay doors: fuselage, double-delta wings, OMS pods
-  const oy = SH_STACK.orbY,
-    pt = (x, yy) => `${cx + x * k},${Y(oy + yy)}`;
-  parts.push(
-    `<path d="M${pt(-11.95, 2.3)} L${pt(-4.9, 11.4)} L${pt(-2.6, 19.6)} L${pt(-2.62, 24)} L${pt(-2.2, 28.6)} Q${pt(-1.4, 32.4)} ${pt(0, 32.75)} Q${pt(1.4, 32.4)} ${pt(2.2, 28.6)} L${pt(2.62, 24)} L${pt(2.6, 19.6)} L${pt(4.9, 11.4)} L${pt(11.95, 2.3)} L${pt(11.9, 1)} L${pt(3.25, 0.5)} L${pt(3.25, -0.6)} L${pt(-3.25, -0.6)} L${pt(-3.25, 0.5)} L${pt(-11.9, 1)}Z" fill="#efede7" stroke="rgba(0,0,0,.35)" stroke-width=".5"/>`,
-  );
-  parts.push(
-    `<path d="M${pt(-2.3, 25.8)} L${pt(2.3, 25.8)} L${pt(1.8, 28.4)} L${pt(-1.8, 28.4)}Z" fill="#141517"/><path d="M${pt(-0.9, 31.3)} Q${pt(0, 32.9)} ${pt(0.9, 31.3)}Z" fill="#141517"/>`,
-  );
-  parts.push(
-    `<line x1="${cx}" y1="${Y(oy + 5.6)}" x2="${cx}" y2="${Y(oy + 23.9)}" stroke="rgba(0,0,0,.3)" stroke-width=".6"/><path d="M${pt(-0.25, 5.8)} L${pt(0.25, 5.8)} L${pt(0.2, -4)} L${pt(-0.2, -4)}Z" fill="#9ea3a9"/>`,
-  );
-}
-function launcherSVG(selKey, variant) {
-  const keys = Object.keys(LAUNCHERS);
-  const Hh = 300,
-    base = 266,
-    k = 225 / 125;
-  let x = 30;
-  const out = [];
-  const grid = [0, 25, 50, 75, 100, 125];
-  for (const key of keys) {
-    const L = LAUNCHERS[key];
-    const sel = key === selKey;
-    const op = sel ? 1 : 0.38;
-    const core = L.stages.filter((s) => !s.parallel);
-    const bst = L.stages[0].parallel ? L.stages[0] : null;
-    const maxR = Math.max(
-      ...L.stages.map((s) => Math.max(...s.geom.map((g) => g[1]))),
-      bst ? bst.booster.offset + bst.geom[0][1] : 0,
-    );
-    const slot = Math.max(66, 2 * maxR * k + 18);
-    const cx = x + slot / 2;
-    let y = base;
-    const parts = [];
-    if (L.sideMount) {
-      shuttleSVG(L, cx, base, k, parts, sel ? variant : null);
-      out.push(
-        `<g opacity="${op}" style="cursor:pointer" data-key="${key}"><rect x="${x}" y="0" width="${slot}" height="${Hh}" fill="transparent"/>${parts.join("")}<text x="${cx}" y="${base + 16}" fill="${sel ? "#ffb547" : "#8794a8"}" font-size="11" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-weight="${sel ? 700 : 500}">${esc(SHORT_NAMES[key] || L.name)}</text><text x="${cx}" y="${base - L.height * k - 7}" fill="${sel ? "#ffb547" : "#56647a"}" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">${L.height} m</text></g>`,
+    const fovK = Math.min(1, CAM.lens > 0 ? 50 / CAM.lens : 1);
+    if (p.b === 2 || p.shift) {
+      CAM.roll += dx * 0.004;
+      return;
+    }
+    if (CAM.mode === "ground") {
+      CAM.ground.track = false;
+      CAM.ground.yaw -= dx * 0.0035 * fovK;
+      CAM.ground.pitch = clamp(
+        CAM.ground.pitch + dy * 0.0035 * fovK,
+        -1.55,
+        1.55,
       );
-      x += slot;
-      continue;
+      return;
     }
-    if (bst) {
-      const off = bst.booster.offset;
-      for (const sgn of [-1, 1]) {
-        let yb = base;
-        for (const [len, rb, rt, col] of bst.geom) {
-          parts.push(
-            `<path d="M${cx + sgn * off * k - rb * k},${yb} L${cx + sgn * off * k + rb * k},${yb} L${cx + sgn * off * k + rt * k},${yb - len * k} L${cx + sgn * off * k - rt * k},${yb - len * k}Z" fill="${col}"/>`,
-          );
-          yb -= len * k;
+    if (CAM.mode === "cine") setMode("auto"); // (taking the camera ends the film; the director carries on from here)
+    if (CAM.mode === "auto") {
+      DIR.offAz -= dx * 0.006;
+      DIR.offEl = clamp(DIR.offEl + dy * 0.006, -1.5, 1.5);
+      DIR.blend = null;
+      return;
+    }
+    CAM.az -= dx * 0.006;
+    CAM.el = clamp(CAM.el + dy * 0.006, -1.55, 1.55);
+  });
+  const up = (e) => {
+    ptrs.delete(e.pointerId);
+    if (ptrs.size < 2) pinch0 = null;
+    if (!ptrs.size) el.classList.remove("dragging");
+  };
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  el.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+      if (CAM.mode === "ground") {
+        CAM.lens = clamp(CAM.lens * Math.exp(-dy * 0.0012), 8, 3200);
+        applyLens();
+        syncCamUI();
+        return;
+      }
+      if (CAM.mode === "cine") setMode("auto");
+      if (CAM.mode === "auto") {
+        DIR.zoomK = clamp(DIR.zoomK * Math.exp(dy * 0.0012), 0.05, 2e4);
+        return;
+      }
+      CAM.trans = null;
+      CAM.dist = clamp(CAM.dist * Math.exp(dy * 0.0012), 0.004, 5e10);
+    },
+    { passive: false },
+  );
+  el.addEventListener("dblclick", (e) => {
+    // pick nearest label
+    let best = null,
+      bd = 40;
+    for (const lbl of [...$$("#labels .lbl")]) {
+      const r = lbl.getBoundingClientRect();
+      if (r.left < -1000) continue;
+      const d = Math.hypot(r.left + 4 - e.clientX, r.top + 7 - e.clientY);
+      if (d < bd) {
+        bd = d;
+        best = lbl;
+      }
+    }
+    if (best) best.click();
+  });
+}
+function syncCamUI() {
+  const sm = $("#selMode");
+  if (sm.value !== CAM.mode) sm.value = CAM.mode;
+  const st = $("#selTarget");
+  if (st.value !== CAM.target) st.value = CAM.target;
+  const sl = $("#selLook");
+  if (sl.value !== CAM.look) sl.value = CAM.look;
+  const ln = $("#selLens");
+  const lv = String(Math.round(CAM.lens));
+  if (![...ln.options].some((o) => o.value === lv)) {
+    const o =
+      ln.querySelector("option[data-custom]") ||
+      h("option", { "data-custom": "1" });
+    o.value = lv;
+    o.textContent = lv + " mm";
+    if (!o.parentNode) ln.prepend(o);
+  }
+  ln.value = lv;
+  $("#lookWrap").hidden = CAM.mode !== "lookat";
+}
+
+// ==== 51_cine.js
+// ============================================================================
+// Cinematic launch: a camera mode ('cine') that cuts the launch like a film, from the ignition to the first staging, then
+// hands over to the director (app/50_camera.js). The shots are a pure function of the mission time, from the flight's
+// own events (the ignition, the liftoff, max-Q, the first staging), so they fit every vehicle, and scrubbing back to the
+// launch plays them again:
+//   1. base     — before liftoff: a camera low on the ground near the pad, a wide lens looking up the vehicle, pushing in
+//   2. rise     — the first seconds: slow motion, a ground camera out past the blast's cloud as the vehicle climbs out of it
+//   3. track    — a long lens a few kilometres out on the ground, following it into the sky
+//   4. tail     — a camera below the vehicle looking up along its plume, then round to its side
+//   5. staging  — a close cut on the first separation, in slow motion
+// The ground shots stand where the pad's towers do not block them (the pad's block list, as the director's pad shot).
+// The camera shakes as a camera would (cineShake below); the clock slows (CINE.timeK, applied in app/90_main.js) for
+// the slow-motion shots. Dragging the view, or picking another mode, ends it.
+// ============================================================================
+const CINE = { timeK: 1, osc: null };
+// the times the shots are cut on, from the mission's events (cached per mission)
+function cineTimes(md) {
+  if (md.cineT) return md.cineT;
+  const ev = (re) => md.events.find((e) => re.test(e.name)),
+    t0 = md.M.t0;
+  const ign = ev(/^Ignition sequence start/),
+    mq = md.events.find((e) => e.kind === "maxq"),
+    st = md.events.find((e) => e.kind === "staging" && e.t > t0);
+  const tS = st ? st.t : t0 + 150,
+    tQ = mq ? mq.t : t0 + 60;
+  const tTail = t0 + 28,
+    tSide = Math.max(tTail + 12, Math.min(tQ + 20, tS - 10)),
+    tSep = tS - 1.5;
+  return (md.cineT = {
+    tIgn: ign ? ign.t : t0 - 7,
+    t0,
+    tTail,
+    tSide,
+    tSep,
+    tS,
+    tEnd: tS + 6,
+  });
+}
+// The ground cameras stand east or west of the pad, on the side nearer the Sun: the flame trenches throw the cloud north
+// and south (app/48_padcloud.js), and a camera across them would watch the vehicle vanish into it. A long lens from out
+// there sees a broad wedge behind and before the pad, so a side with a tower within 40° of it (ELA-3's water tower) gives
+// way to the other
+function cineSide(sunAz) {
+  const blk = (MV.pad && MV.pad.userData.block) || [],
+    sides = Math.cos(sunAz) >= 0 ? [0, Math.PI] : [Math.PI, 0];
+  return (
+    sides.find(
+      (c) => !blk.some(([b]) => Math.abs(wrapPi(c - b * DEG)) < 40 * DEG),
+    ) ?? sides[0]
+  );
+}
+// a bearing (chase basis: from east toward north, rad) near `want` that no tower blocks
+function cineClear(want) {
+  let a = want;
+  const blk = MV.pad && MV.pad.userData.block;
+  if (blk)
+    for (let k = 0; k < 4; k++) {
+      let moved = false;
+      for (const [b, w] of blk) {
+        const d = wrapPi(a - b * DEG);
+        if (Math.abs(d) < w * DEG - 1e-9) {
+          a = b * DEG + (d < 0 ? -w : w) * DEG;
+          moved = true;
         }
       }
+      if (!moved) break;
     }
-    for (const s of core)
-      for (const [len, rb, rt, col] of s.geom) {
-        parts.push(
-          `<path d="M${cx - rb * k},${y} L${cx + rb * k},${y} L${cx + rt * k},${y - len * k} L${cx - rt * k},${y - len * k}Z" fill="${col}" stroke="rgba(0,0,0,.35)" stroke-width=".4"/>`,
-        );
-        y -= len * k;
-      }
-    const rest = L.height * k - (base - y);
-    if (rest > 1) {
-      const r =
-        (L.payloadFairing
-          ? L.payloadFairing.r
-          : core[core.length - 1].geom.slice(-1)[0][2]) * k;
-      parts.push(
-        `<path d="M${cx - r},${y} L${cx + r},${y} L${cx + r},${y - rest * 0.45} Q${cx + r},${y - rest * 0.8} ${cx},${y - rest} Q${cx - r},${y - rest * 0.8} ${cx - r},${y - rest * 0.45}Z" fill="${L.payloadFairing ? L.payloadFairing.color : "#d9dde2"}"/>`,
-      );
-    }
-    out.push(
-      `<g opacity="${op}" style="cursor:pointer" data-key="${key}"><rect x="${x}" y="0" width="${slot}" height="${Hh}" fill="transparent"/>${parts.join("")}<text x="${cx}" y="${base + 16}" fill="${sel ? "#ffb547" : "#8794a8"}" font-size="11" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-weight="${sel ? 700 : 500}">${esc(SHORT_NAMES[key] || L.name)}</text><text x="${cx}" y="${base - L.height * k - 7}" fill="${sel ? "#ffb547" : "#56647a"}" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">${L.height} m</text></g>`,
-    );
-    x += slot;
-  }
-  const W = x + 10;
-  const g = `<g stroke="#1c2738">${grid.map((m) => `<line x1="24" x2="${W - 4}" y1="${base - m * k}" y2="${base - m * k}"/><text x="2" y="${base - m * k + 3}" fill="#56647a" stroke="none" font-size="9" font-family="IBM Plex Mono, monospace">${m}</text>`).join("")}</g>`;
-  return `<div class="scroll-x"><svg class="vehicle-svg" viewBox="0 0 ${W} ${Hh}" style="min-width:${Math.round(W * 0.82)}px" role="img" aria-label="Launch vehicles drawn to scale; heights in metres">${g}${out.join("")}</svg></div>`;
+  return a;
 }
+// What a shot frames: the vehicle as it is drawn now (its model's bounds, along its axis), not the launcher's nominal
+// height from its base point — a Shuttle stack is as wide as it is tall, and a stage's base point is its engines.
+// aim: its middle, relative to the craft's position (km, the scene's axes); len: its size (km)
+const _cv = new THREE.Vector3(),
+  _cp = new THREE.Vector3();
+function cineSubject(c, Lnom) {
+  const m = c.cur,
+    ud = m && m.userData;
+  if (!m || !ud.bbY || !c.node) return { aim: null, len: Lnom };
+  const yc = (c.yOff || 0) + (ud.bbY[0] + ud.bbY[1]) / 2; // (the model's own origin sits c.yOff up the node)
+  c.node.localToWorld(_cv.set(0, yc, 0));
+  c.node.getWorldPosition(_cp);
+  const lenM = Math.max(
+    ud.bbY[1] - ud.bbY[0],
+    ud.bbox ? Math.max(ud.bbox.w, ud.bbox.d) : 0,
+  );
+  return {
+    aim: [_cv.x - _cp.x, _cv.y - _cp.y, _cv.z - _cp.z],
+    len: Math.max(lenM * 0.001, 0.005),
+  };
+}
+// pixels per radian for a lens (mm), and the free rows' height (the screen the HUD leaves: the director's band, which the
+// view is already centred in)
+function cinePxPerRad(lens) {
+  return (lens * frameRect().w) / 36;
+}
+function cineBandH() {
+  const B = screenBand();
+  return Math.max(B.bot - B.top, 80);
+}
+// the lens (mm) that makes a size of h km at a distance of d km fill a fraction f of the free rows

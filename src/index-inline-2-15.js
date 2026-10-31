@@ -1,5 +1,5 @@
 // index-inline-2 15 — inner
-// Lines 3794-4117 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 3827-4139 of readable/index-inline-2.pretty.js (statement-aligned).
 function buildSC(model, parts, flags = {}) {
   if (model === "shuttle") return buildOrbiter(flags);
   if (model === "iss") return issModel(flags);
@@ -218,26 +218,15 @@ function buildSC(model, parts, flags = {}) {
       break;
     }
     case "clipper": {
-      inner = new THREE.Group();
-      const body = cyl(0.8, 0.8, 3.0, mat("#e6e3dc", "paint"));
-      inner.add(body);
-      const hga = dish(1.5, "#f2f2ee");
-      hga.position.y = 3.6;
-      inner.add(hga);
-      for (const s of [-1, 1]) {
-        const w = solarWing(13.5, 4.1, 5, "#16223e");
-        w.position.set(s * 0.8, 1.3, 0);
-        if (s < 0) w.rotation.y = Math.PI;
-        inner.add(w);
-      }
-      const mag = cyl(0.03, 0.03, 8.5, mat("#9aa0a6", "metal"));
-      mag.rotation.x = Math.PI / 2;
-      mag.position.set(0, 0.6, 4.2);
-      inner.add(mag);
-      inner.userData.len = 3.0;
-      mounts.push({ y: -0.1, r: 0.3, tag: "SC" });
+      inner = clipperModel(flags);
+      mounts.push(...inner.userData.mounts);
       break;
-    }
+    } // app/39_clipper.js
+    case "jwst": {
+      inner = jwstModel(flags);
+      mounts.push(...inner.userData.mounts);
+      break;
+    } // app/3c_jwst.js
     case "starshipPayload": {
       inner = starshipShip(flags.landed, flags.landed || flags.powered);
       mounts.push({ y: inner.userData.engineY, r: 3.6, tag: "upper" });

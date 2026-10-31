@@ -41,6 +41,19 @@ const lsGet = (k, d) => {
     return d;
   }
 };
+// run f when the browser is next idle, but within ms at the latest: on a machine where every frame runs long (software
+// rendering, a slow laptop) idle time may never come, and work left to it (the atmosphere tables, the entry glow's points)
+// would never be done
+// the clock the camera moves, the captions and the easing run on: real time, or the film's own clock while frames are
+// being captured one by one (app/90_main.js, STATE.filming)
+const clockMs = () =>
+  typeof STATE !== "undefined" && STATE.filming
+    ? STATE.filmMs
+    : performance.now();
+const whenIdle = (f, ms) =>
+  window.requestIdleCallback
+    ? window.requestIdleCallback(f, { timeout: ms })
+    : setTimeout(f, Math.min(ms, 200));
 const lsSet = (k, v) => {
   try {
     localStorage.setItem(k, JSON.stringify(v));
@@ -1193,7 +1206,7 @@ function atmosUniforms(name, later) {
     A.U.tMS.value = A.texM;
     A.U.tSkyI.value = A.texI;
   };
-  if (later) (window.requestIdleCallback || ((f) => setTimeout(f, 200)))(ready);
+  if (later) whenIdle(ready, 2000);
   else ready();
   return A.U;
 }
@@ -1301,7 +1314,10 @@ vec3 aDisplay(vec3 S) {
   vec3 x = S * aWB * aGrade.x; float l = dot(x, vec3(0.2126, 0.7152, 0.0722));
   x = max(mix(vec3(l), x, aGrade.y), 0.0);
   return x / (1.0 + x * aGrade.z);
-}`;
+}
+// the air's light in front of a surface dist km away: at the ground's own exposure close by (the sky's grade would veil
+// the ground a few kilometres off three times over), going over to the sky's look far off, where the ground meets the sky
+vec3 aHaze(vec3 S, float dist) { return mix(S * aWB * aExpo, aDisplay(S), smoothstep(20.0, 200.0, dist)); }`;
 
 // ==== 20_scene.js
 // ============================================================================
@@ -1313,6 +1329,7 @@ vec3 aDisplay(vec3 S) {
 const R = { O: [0, 0, 0], helio: {}, texLoaded: 0 };
 const ASSET_MAP = {
   "apollo_lm.glb": "apollo_lm.0c2c313482.glb",
+  "ariane5.glb": "ariane5.cd8cebed0d.glb",
   "earth_aux.jpg": "earth_aux.3bf717776b.jpg",
   "earth_clouds.jpg": "earth_clouds.85c42a93e9.jpg",
   "earth_clouds_8k.jpg": "earth_clouds_8k.87f5cced5f.jpg",
@@ -1322,6 +1339,7 @@ const ASSET_MAP = {
   "earth_night_8k.jpg": "earth_night_8k.d858fe1094.jpg",
   "iss.glb": "iss.93dcb2db5f.glb",
   "jupiter.jpg": "jupiter.efa4857ae7.jpg",
+  "jwst.glb": "jwst.a6c3528675.glb",
   "mars.jpg": "mars.55a8499eae.jpg",
   "mars_4k.jpg": "mars_4k.198fa949d9.jpg",
   "mars_8k.jpg": "mars_8k.2b287e5c8f.jpg",
@@ -1339,6 +1357,10 @@ const ASSET_MAP = {
   "saturnv.glb": "saturnv.7a0913aa0b.glb",
   "shuttle_stack.glb": "shuttle_stack.9526e4715a.glb",
   "stars.json": "stars.b686ef8f1d.json",
+  "terrain_edwards.json": "terrain_edwards.8f322d03f6.json",
+  "terrain_ksc.json": "terrain_ksc.450146f0c2.json",
+  "terrain_starbase.json": "terrain_starbase.d6bfffa20c.json",
+  "terrain_whitesands.json": "terrain_whitesands.ddda2f4cc9.json",
   "venus.jpg": "venus.d02db3e21e.jpg",
   "BufferGeometryUtils.js": "BufferGeometryUtils.1b11c30e00.js",
   "GLTFLoader.js": "GLTFLoader.8c75e4b72b.js",
@@ -1449,7 +1471,7 @@ void main() {
   float t0 = 0.0;
   if (aCamH > aRt - aRg) { float b = dot(aCam, d); vec3 pc = aCam - b * d; float Dt = aRt * aRt - dot(pc, pc); t0 = Dt > 0.0 ? clamp(-b - sqrt(Dt), 0.0, dist) : dist; }
   vec3 S, T; aIntegrate(aCam, d, t0, dist, L, 2, aCamH > aRt - aRg ? 12 : 16, S, T);
-  col = col * T * aWB * aExpo + aDisplay(S);
+  col = col * T * aWB * aExpo + aHaze(S, dist);
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
 }`;
@@ -1484,7 +1506,7 @@ void main() {
   float t0 = 0.0;
   if (aCamH > aRt - aRg) { float b = dot(aCam, d); vec3 pc = aCam - b * d; float Dt = aRt * aRt - dot(pc, pc); t0 = Dt > 0.0 ? clamp(-b - sqrt(Dt), 0.0, dist) : dist; }
   vec3 S, T; aIntegrate(aCam, d, t0, dist, L, 2, 12, S, T);
-  col = col * T * aWB * aExpo + aDisplay(S);
+  col = col * T * aWB * aExpo + aHaze(S, dist);
 #else
   vec3 col = alb * (shade + uAmb) + alb * uFill * (1.0 - smoothstep(0.0, 0.25, mu0)); // night fill (earthshine on the Moon, cinematic elsewhere)
   col = mix(col, uFogColor, 1.0 - exp(-dist * uFogK));
@@ -1592,8 +1614,8 @@ function mulberry32(a) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-function makeDetailTexture() {
-  // tileable value noise + craters, used to add surface texture below the resolution of the global maps
+function makeDetailTexture(craters = true) {
+  // tileable value noise (+ craters for the airless worlds), used to add surface texture below the resolution of the global maps
   const N = 512,
     rnd = mulberry32(7);
   const v = new Float32Array(N * N);
@@ -1626,7 +1648,7 @@ function makeDetailTexture() {
           ((a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy);
       }
   }
-  for (let k = 0; k < 260; k++) {
+  for (let k = 0; k < (craters ? 260 : 0); k++) {
     // craters with raised rims, power-law sizes
     const r = 3 + 60 * Math.pow(rnd(), 3.2),
       cx = rnd() * N,
@@ -1779,6 +1801,7 @@ function initScene() {
   R.envPM = null;
   R.loader = new THREE.TextureLoader();
   R.detailTex = makeDetailTexture();
+  R.detailTexEarth = makeDetailTexture(false); // (Earth's ground without the craters, which from a few kilometres up read as cloud shadows)
   buildStars();
   buildBodies();
   buildPlanetOrbits();
@@ -2040,8 +2063,8 @@ function bodyMaterial(name) {
         uSunDir: sunU,
         uLights: { value: 1 },
         uFill: { value: new THREE.Vector3(0, 0, 0) },
-        tDetail: { value: R.detailTex },
-        uDetailAmp: { value: 0.55 },
+        tDetail: { value: R.detailTexEarth },
+        uDetailAmp: { value: 0.5 },
         uDetailRep: { value: new THREE.Vector2(512, 256) },
         ...capUniforms(),
         ...atmosUniforms("earth"),
@@ -2385,7 +2408,11 @@ function updateOrbits(t, show, camDist, frameMode) {
   }
   const mo = R.moonOrbit;
   mo.line.visible =
-    show && camDist > 3e4 && camDist < 5e7 && frameMode !== "emrot";
+    show &&
+    camDist > 3e4 &&
+    camDist < 5e7 &&
+    frameMode !== "emrot" &&
+    frameMode !== "serot";
   if (mo.line.visible) {
     if (mo.tBuilt == null || Math.abs(t - mo.tBuilt) > 0.5 * DAY) {
       const arr = mo.line.geometry.attributes.position.array;
@@ -3325,9 +3352,13 @@ function preloadDetailedModels(md) {
       if (o.model === "shuttle") want.add("orbiter");
       if (L.orbiter) orbiterLivery(L.orbiter); // the flight's orbiter in its markings (the stack's and the orbiter's own configurations)
       if (o.model === "iss") want.add("iss");
-      if (L.launcher && LAUNCHERS[L.launcher])
-        for (const st of LAUNCHERS[L.launcher].stages)
-          if (st.detail) want.add(st.detail); // launch stacks and spent stages
+      if (o.model === "jwst") want.add("jwst");
+      if (L.launcher && LAUNCHERS[L.launcher]) {
+        const LL = LAUNCHERS[L.launcher];
+        for (const st of LL.stages) if (st.detail) want.add(st.detail);
+        if (LL.payloadFairing && LL.payloadFairing.detail)
+          want.add(LL.payloadFairing.detail);
+      } // launch stacks and spent stages
     }
   for (const n of want) detailFile(n);
 }
@@ -3478,6 +3509,8 @@ const STAGE_D = {
     ],
     bells: true,
   }, // the thrust structure above the cone; the top of the instrument unit
+  "ariane5:EPC": { caps: [[30.45, 2.65, "metal"]] }, // the forward dome, seen once the upper stage has gone
+  "ariane5:ESC-A": { caps: [[0.05, 2.65, "dark"]], bells: true }, // its HM7B, hidden in the core's top until separation
 };
 // Space Shuttle: the external tank and the boosters of a CC BY model of the stack (paburoviii, credited in the README and the
 // app), scaled to their published sizes by tools/models; the orbiter is the Smithsonian's scan. STS-1 and STS-2 flew tanks
@@ -3530,7 +3563,7 @@ function stageD(st, fallback, opts) {
       if (D.bells)
         for (const p of engineLayout(st.eng)) {
           const b = bell(st.eng.len, st.eng.r);
-          b.position.set(p[0], st.eng.y0, p[1]);
+          b.position.set(p[0], st.eng.y0 ?? -st.eng.len, p[1]);
           g.add(b);
         }
     },
@@ -4009,26 +4042,15 @@ function buildSC(model, parts, flags = {}) {
       break;
     }
     case "clipper": {
-      inner = new THREE.Group();
-      const body = cyl(0.8, 0.8, 3.0, mat("#e6e3dc", "paint"));
-      inner.add(body);
-      const hga = dish(1.5, "#f2f2ee");
-      hga.position.y = 3.6;
-      inner.add(hga);
-      for (const s of [-1, 1]) {
-        const w = solarWing(13.5, 4.1, 5, "#16223e");
-        w.position.set(s * 0.8, 1.3, 0);
-        if (s < 0) w.rotation.y = Math.PI;
-        inner.add(w);
-      }
-      const mag = cyl(0.03, 0.03, 8.5, mat("#9aa0a6", "metal"));
-      mag.rotation.x = Math.PI / 2;
-      mag.position.set(0, 0.6, 4.2);
-      inner.add(mag);
-      inner.userData.len = 3.0;
-      mounts.push({ y: -0.1, r: 0.3, tag: "SC" });
+      inner = clipperModel(flags);
+      mounts.push(...inner.userData.mounts);
       break;
-    }
+    } // app/39_clipper.js
+    case "jwst": {
+      inner = jwstModel(flags);
+      mounts.push(...inner.userData.mounts);
+      break;
+    } // app/3c_jwst.js
     case "starshipPayload": {
       inner = starshipShip(flags.landed, flags.landed || flags.powered);
       mounts.push({ y: inner.userData.engineY, r: 3.6, tag: "upper" });
@@ -4162,6 +4184,29 @@ function buildStowed(model, rBelow, fl = {}) {
     g.userData = { len: 0, mounts: [] };
     return g;
   }
+  if (model === "clipper") {
+    // on the Falcon Heavy's adapter, the arrays folded against its sides (app/39_clipper.js)
+    const ad = cyl(Math.min(rBelow, 1.6), 0.7, 0.8, mat("#bdbdbd", "metal"));
+    g.add(ad);
+    const sc = buildSC(model, ["orbiter"], { stowed: true });
+    sc.position.y = 0.8;
+    g.add(sc);
+    g.userData = {
+      len: 0.8 + sc.userData.len,
+      mounts: sc.userData.mounts.map((m) => ({ ...m, y: m.y + 0.8 })),
+    };
+    return g;
+  }
+  if (model === "jwst") {
+    // folded on Ariane's adapter, 10.7 m tall inside the fairing (app/3c_jwst.js)
+    const ad = cyl(Math.min(rBelow, 1.3), 1.2, 1.0, mat("#bdbdbd", "metal"));
+    g.add(ad);
+    const sc = buildSC(model, ["orbiter"], { stowed: true });
+    sc.position.y = 1.0;
+    g.add(sc);
+    g.userData = { len: 1.0 + sc.userData.len, mounts: [] };
+    return g;
+  }
   if (model === "mariner") {
     // on the Agena's adapter (app/35_atlas.js), the panels folded up
     const sc = buildSC(model, ["orbiter"], { stowed: true });
@@ -4246,7 +4291,7 @@ function buildLaunchStack(lkey, scModel, c) {
       off = bst.booster.offset;
     for (let k = 0; k < n; k++) {
       const a = n === 2 ? k * Math.PI : (k * Math.PI) / 2 + Math.PI / 4;
-      const b = buildStage(bst);
+      const b = buildStage(bst, { az: a });
       b.group.position.set(
         Math.cos(a) * off,
         (firstCoreY || 0) + 0.5,
@@ -4273,7 +4318,8 @@ function buildLaunchStack(lkey, scModel, c) {
       PF.encloseUpper && core.length >= 2
         ? y - core[core.length - 1].s.geom.reduce((a, gg) => a + gg[0], 0) - 0.5
         : y;
-    const f = ogive(PF.r, PF.len, mat(PF.color), PF.cyl ?? 0.45);
+    const f0 = ogive(PF.r, PF.len, mat(PF.color), PF.cyl ?? 0.45),
+      f = PF.detail ? detailPart(PF.detail, "fairing", f0) : f0;
     f.position.y = yF;
     g.add(f);
     y = yF + PF.len;
@@ -4303,6 +4349,12 @@ function buildStageOnly(lkey, idx, withAdapter, variant) {
   const st = buildStage(s, {
     ist: false,
     white: variant === "sts1" && lkey === "shuttle" && idx === 1,
+    az:
+      s.parallel && s.booster
+        ? s.booster.count === 2
+          ? 0
+          : Math.PI / 4
+        : undefined,
   }); // (a spent stage's aft interstage went long before)
   if (s.parallel && s.booster) {
     // drop all boosters together
@@ -4311,11 +4363,11 @@ function buildStageOnly(lkey, idx, withAdapter, variant) {
       off = s.booster.offset;
     for (let k = 0; k < n; k++) {
       const a = n === 2 ? k * Math.PI : (k * Math.PI) / 2 + Math.PI / 4;
-      const b = k === 0 ? st : buildStage(s);
+      const b = k === 0 ? st : buildStage(s, { az: a });
       b.group.position.set(Math.cos(a) * off, 0, Math.sin(a) * off);
-      if (n === 2 && k === 1) b.group.scale.x = -1;
+      if (n === 2 && k === 1 && s.detail) b.group.scale.x = -1;
       g.add(b.group);
-    } // a pair: mirror images
+    } // a pair of scanned boosters: mirror images (a drawn one has its own bearing)
     g.userData = { len: st.len, mounts: [] };
     return g;
   }
@@ -4361,6 +4413,7 @@ function finishModel(g) {
   g.position.y = -yc;
   wrap.add(g);
   wrap.userData = { ...g.userData, yc, wrapped: true };
+  delete wrap.userData.wingtips; // (the wing tips are given in the model's own frame, 'yc' below the wrapper's: left to the model's node, app/49_contrail.js)
   wrap.updateMatrixWorld(true);
   const bb = new THREE.Box3().setFromObject(wrap);
   const sz = new THREE.Vector3();
@@ -4421,20 +4474,35 @@ void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 wp = mod
 const GLSL_PLUME_F = `
 #include <common>
 #include <logdepthbuf_pars_fragment>
-uniform vec3 uColor; uniform vec3 uCore; uniform float uI; uniform float uTime; uniform float uDiam; uniform float uDF; uniform float uDL; uniform float uCF;
+uniform vec3 uColor; uniform vec3 uCore; uniform float uI; uniform float uTime; uniform float uDiam; uniform float uDF; uniform float uDL; uniform float uCF; uniform float uSoot; uniform sampler2D tNoise;
 varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+// The flame: a cone of hot gas, white-hot at the nozzle and the propellant's colour beyond, broken up by turbulence that
+// streams down it (two noise octaves scrolling with the flow, stretched along the axis), its rim eroded by the same
+// turbulence so it does not read as a smooth cone, and the shock diamonds just behind the nozzle. Additive.
 void main(){
   #include <logdepthbuf_fragment>
   // (clamped: with multisampling, a pixel on the cone's rim can be shaded at its centre just outside the cone, where vUv
   // runs past 0…1, and pow() of a number below 0 is undefined: NaN on most GPUs, a black dot under the film look)
-  float along = clamp(1.0 - vUv.y, 0.0, 1.0);
+  float along = clamp(1.0 - vUv.y, 0.0, 1.0), around = vUv.x;
   vec3 V = normalize(cameraPosition - vP);
   float edge = abs(dot(normalize(vN), V));
-  float body = pow(edge, 1.3) * pow(1.0 - along, 1.6);
-  float flick = 0.85 + 0.15 * sin(uTime * 37.0 + along * 23.0) * sin(uTime * 11.0);
+  float t = uTime;
+  float n1 = texture2D(tNoise, vec2(around * 2.0, along * 1.6 - t * 1.7)).r, n2 = texture2D(tNoise, vec2(around * 5.0 + 0.3, along * 4.5 - t * 3.1)).r;
+  float turb = 0.55 * n1 + 0.45 * n2; // 0…1, mostly round 0.5
+  // the rim: eroded more and more down the flame (the tail breaks into wisps), and thin at the edge of the cone
+  float rim = pow(edge, 1.3) * (1.0 - smoothstep(0.35 + 0.65 * turb, 1.0, along));
+  // the body: the turbulence shows as bright eddies against darker gas, not as a wash over a flat cone
+  float body = rim * pow(1.0 - along, 1.5) * mix(0.12, 1.3, turb * turb) * 0.65;
+  float flick = 0.9 + 0.1 * sin(t * 37.0 + along * 23.0) * sin(t * 11.0);
   // shock diamonds: spaced by the nozzle size and confined to the stretch just behind it, however long the flame
-  float diam = uDiam * smoothstep(0.55, 1.0, sin(along * uDF - uTime * 3.0)) * (1.0 - smoothstep(uDL * 0.55, uDL, along)) * (1.0 - along) * edge;
+  // (bright knots down the flame's axis, so they are weighted to where the cone faces the camera and not drawn as rings
+  // round it, and broken up by the turbulence)
+  float diam = uDiam * smoothstep(0.55, 1.0, sin(along * uDF - t * 3.0)) * (1.0 - smoothstep(uDL * 0.55, uDL, along)) * (1.0 - along) * pow(edge, 3.0) * (0.5 + 0.8 * n1);
+  // the colour: white-hot core, the propellant's colour, deepening toward red-orange at the eroded tail
   vec3 col = mix(uCore, uColor, smoothstep(0.0, uCF, along));
+  col = mix(col, col * vec3(1.0, 0.55, 0.3), smoothstep(0.5, 1.0, along) * 0.6);
+  // a sooty propellant's tail: the unburnt carbon dims the flame where the gas has cooled, most between the eddies
+  col *= 1.0 - uSoot * smoothstep(0.3, 1.0, along) * (0.35 + 0.4 * (1.0 - turb));
   gl_FragColor = vec4(col * (body * flick + diam * 0.8) * uI, 1.0);
 }`;
 function makePlume() {
@@ -4452,6 +4520,8 @@ function makePlume() {
       uDF: { value: 46 },
       uDL: { value: 1 },
       uCF: { value: 0.45 },
+      uSoot: { value: 0 },
+      tNoise: { value: null },
     },
     transparent: true,
     depthWrite: false,
@@ -5061,6 +5131,21 @@ function smSkinMat() {
   g.fillStyle = "rgba(30,32,36,0.8)";
   for (let k = 0; k < 220; k++)
     g.fillRect((k * 197) % 1024, 40 + ((k * 89) % 430), 2, 2); // fasteners
+  // UNITED STATES in red down bay 1, with the flag above it, and the red stripe the umbilical fairing's foot sits on
+  g.save();
+  g.translate(440, 120);
+  g.rotate(Math.PI / 2);
+  g.fillStyle = "#c8322b";
+  g.font = "bold 26px Helvetica, Arial, sans-serif";
+  g.textBaseline = "middle";
+  g.fillText("UNITED STATES", 0, 0);
+  g.restore();
+  g.fillStyle = "#b22234";
+  g.fillRect(425, 60, 44, 28);
+  g.fillStyle = "#ffffff";
+  for (let i = 1; i < 7; i += 2) g.fillRect(425, 60 + i * 4, 44, 4);
+  g.fillStyle = "#3c3b6e";
+  g.fillRect(425, 60, 18, 15);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
@@ -5429,6 +5514,26 @@ function apolloSM(damaged, stowed = false) {
       b.position.set(d[0] * 0.28, d[1] * 0.31, 0.12);
       q.add(b);
     }
+  }
+  // the two scimitar antennas, blades on the skin low on opposite sides; the CM–SM umbilical's fairing at the top
+  for (const a of [0.55, 0.55 + Math.PI]) {
+    const bl = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.42, 0.04),
+      mat("#d8dadd", "metal"),
+    );
+    bl.position.set(Math.sin(a) * 2.0, 0.9, Math.cos(a) * 2.0);
+    bl.rotation.y = a;
+    g.add(bl);
+  }
+  {
+    const a = 2.7,
+      u = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.9, 0.3),
+        mat("#cfd2d6", "metal"),
+      );
+    u.position.set(Math.sin(a) * 2.05, SM_LEN - 0.4, Math.cos(a) * 2.05);
+    u.rotation.y = a;
+    g.add(u);
   }
   // the high-gain antenna on its boom at the aft end: four dishes round a wide-beam horn
   if (!stowed) {
@@ -6386,6 +6491,10 @@ function wearLivery(g, id) {
 function buildOrbiter(flags = {}) {
   const fb = orbiterBuiltIn(flags),
     open = flags.bay === "open";
+  fb.userData.wingtips = [
+    [-11.9, 2.3, -2.5],
+    [11.9, 2.3, -2.5],
+  ]; // the wing tips' trailing corners in the orbiter's frame (the wing lies low on the fuselage, 2.45 m below the axis), for the vortex trails of the glide home (app/49_contrail.js)
   const g = detailPart("orbiter", "body", fb, {
     extra: (d) => {
       const P = DETAIL.ready.orbiter,
@@ -10595,6 +10704,1753 @@ function ce5Assembly(P, flags) {
   return { inner: g, mounts };
 }
 
+// ==== 39_clipper.js
+// ============================================================================
+// Europa Clipper (2024), metres, y = 0 at the foot of the propulsion module. Published (NASA/JPL press kit): the
+// propulsion module is an aluminium cylinder about 3 m tall and 1.5 m wide, with the propellant tanks inside and 24
+// engines of 27.5 N; the electronics vault, an aluminium-zinc box, is bolted on top of it; the high-gain antenna is a
+// 3 m dish; the two solar arrays have five panels each and span 14.2 × 4.1 m apiece, about 30.5 m tip to tip; the
+// magnetometer boom is 8.5 m long; the radar's four HF antennas, 17.6 m each, extend crosswise from the solar arrays,
+// and its eight VHF antennas, 2.76 m each, sit on the arrays; stowed for launch it stands 4.7 m tall, 3 m wide and 4 m
+// deep. The arrays opened within hours of launch, the boom and the radar antennas over the weeks after. Where a size is
+// not published (the vault's, the yoke's, where the antennas sit on the arrays) it is estimated from photographs.
+// Stowed (flags.stowed), the arrays are folded in a stack against the body and the boom and antennas lie along it;
+// from flags.deployT (separation from the Falcon Heavy's upper stage) they open out.
+// ============================================================================
+const CL_PM_R = 0.75,
+  CL_PM_H = 3.0,
+  CL_VAULT = [1.5, 0.9, 1.3],
+  CL_HGA_R = 1.5,
+  CL_ARRAY = [14.2, 4.1],
+  CL_PANELS = 5,
+  CL_MAG = 8.5,
+  CL_HF = 17.6,
+  CL_VHF = 2.76;
+// one solar array along +X from its hinge at the body, the cells facing +Z: five panels in an accordion (even panels fold
+// toward the body, odd ones away), userData.fold(f) folds them (f = 1 open, 0 stacked); the radar antennas ride on it
+function clArray(side) {
+  const L = CL_ARRAY[0],
+    W = CL_ARRAY[1],
+    pw = L / CL_PANELS,
+    g = new THREE.Group(),
+    hinges = [],
+    panels = [];
+  let parent = g;
+  for (let i = 0; i < CL_PANELS; i++) {
+    const h = new THREE.Group();
+    h.position.x = i ? pw : 0;
+    parent.add(h);
+    hinges.push(h);
+    const p = twPanel(pw - 0.04, W, 10, 14, "#b9bdc3");
+    p.position.x = 0.02;
+    h.add(p);
+    panels.push(p);
+    parent = h;
+  }
+  // the radar on the outer panels: the HF antenna, a thin pole 17.6 m long across the array's width, standing a little
+  // off its back; the VHF antennas, two flat rectangles 2.76 m long along the array's edges beside it
+  const ant = new THREE.Group();
+  ant.position.set(pw * 3.5, 0, -0.12);
+  hinges[3].add(ant);
+  const hf = twBarMesh(0.03, mat("#d9dcdf", "metal"));
+  twSetBar(hf, [0, -CL_HF / 2, 0], [0, CL_HF / 2, 0]);
+  ant.add(hf);
+  for (const y of [-W / 2 - 0.3, W / 2 + 0.3]) {
+    const v = box(CL_VHF, 0.25, 0.04, mat("#2a2c31", "dark"));
+    v.rotation.x = Math.PI / 2;
+    v.position.set(0, y, 0);
+    ant.add(v);
+  }
+  for (const y of [-W / 2, W / 2])
+    ant.add(
+      m20Bar(
+        [0, y * 0.98, 0.12],
+        [0, y * 0.98, 0],
+        0.015,
+        mat("#9aa0a6", "metal"),
+      ),
+    ); // its stand-offs
+  g.userData.ant = ant; // the antennas are stowed along the array until they deploy (userData.deployAnt)
+  g.userData.fold = (f) => {
+    for (let i = 1; i < CL_PANELS; i++) {
+      hinges[i].rotation.y = (i % 2 ? 1 : -1) * Math.PI * (1 - f);
+      hinges[i].position.z = (i % 2 ? 0.04 : -0.04) * (1 - f);
+    }
+  };
+  g.userData.deployAnt = (f) => {
+    hf.scale.y = Math.max(0.2 + 0.8 * f, 1e-3) * CL_HF;
+    ant.position.z = -0.12 * f - 0.02 * (1 - f);
+  };
+  return g;
+}
+function clipperModel(flags = {}) {
+  const g = new THREE.Group(),
+    alu = mat("#b9bdc3", "metal"),
+    dark = mat("#2a2c31", "dark"),
+    white = mat("#ecebe6", "paint");
+  // the propulsion module: the lower cylinder in gold blankets, the upper in silver, a ring between; the four engine
+  // modules under it (six 27.5 N engines each, drawn as a cluster of small bells on a plate)
+  g.add(cyl(CL_PM_R, CL_PM_R, CL_PM_H * 0.55, foilMat("gold", 3), 40));
+  const up = cyl(CL_PM_R, CL_PM_R, CL_PM_H * 0.45, foilMat("mylar", 3), 40);
+  up.position.y = CL_PM_H * 0.55;
+  g.add(up);
+  const ring = cyl(CL_PM_R + 0.03, CL_PM_R + 0.03, 0.06, alu, 40);
+  ring.position.y = CL_PM_H * 0.55 - 0.03;
+  g.add(ring);
+  for (let k = 0; k < 4; k++) {
+    const a = (k * TAU) / 4 + TAU / 8,
+      m = new THREE.Group();
+    m.position.set(Math.sin(a) * 0.55, 0, Math.cos(a) * 0.55);
+    m.rotation.y = a;
+    g.add(m);
+    const plate = box(0.34, 0.06, 0.26, alu);
+    plate.position.y = -0.06;
+    m.add(plate);
+    for (let i = 0; i < 3; i++)
+      for (const z of [-0.07, 0.07]) {
+        const b = bell(
+          0.12,
+          0.035,
+          mat("#4a4c50", "metal", { side: THREE.DoubleSide }),
+        );
+        b.rotation.x = Math.PI;
+        b.position.set(-0.1 + i * 0.1, -0.06, z);
+        m.add(b);
+      }
+  }
+  // the electronics vault on top, its radiator (white) on one face, the small antennas on it; the vault plate
+  const vault = box(CL_VAULT[0], CL_VAULT[1], CL_VAULT[2], foilMat("black", 2));
+  vault.position.y = CL_PM_H;
+  g.add(vault);
+  const rad = box(CL_VAULT[0] * 0.8, CL_VAULT[1] * 0.8, 0.03, white);
+  rad.position.set(0, CL_PM_H + 0.09, -CL_VAULT[2] / 2 - 0.015);
+  g.add(rad);
+  const plate = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.14, 0.01, 3),
+    mat("#8a8c90", "metal"),
+  );
+  plate.rotation.z = Math.PI / 2;
+  plate.position.set(CL_VAULT[0] / 2 + 0.005, CL_PM_H + 0.5, 0.2);
+  g.add(plate);
+  // the high-gain antenna on top: the 3 m dish on a short pedestal, its feed on a tripod, the sunshade over the rim
+  const hga = new THREE.Group();
+  hga.position.y = CL_PM_H + CL_VAULT[1];
+  g.add(hga);
+  const ped = cyl(0.3, 0.3, 0.25, alu, 24);
+  hga.add(ped);
+  const d = twDish(
+    CL_HGA_R,
+    0.38,
+    mat("#f2f2ee", "paint", { side: THREE.DoubleSide }),
+  );
+  d.position.y = 0.25;
+  hga.add(d);
+  const shade = cyl(
+    CL_HGA_R + 0.02,
+    CL_HGA_R + 0.02,
+    0.1,
+    foilMat("black", 1),
+    40,
+    true,
+  );
+  shade.position.y = 0.25 + 0.38 - 0.05;
+  shade.material = shade.material.clone();
+  shade.material.side = THREE.DoubleSide;
+  hga.add(shade);
+  for (let k = 0; k < 3; k++) {
+    const a = (k * TAU) / 3;
+    hga.add(
+      m20Bar(
+        [Math.sin(a) * 1.0, 0.25 + 0.17, Math.cos(a) * 1.0],
+        [0, 1.15, 0],
+        0.018,
+        alu,
+      ),
+    );
+  }
+  const feed = cyl(0.08, 0.08, 0.22, white, 12);
+  feed.position.y = 1.0;
+  hga.add(feed);
+  const mga = twDish(0.2, 0.05, white, 20);
+  mga.position.set(1.0, 0.3, 0.9);
+  mga.rotation.x = -0.3;
+  hga.add(mga); // a medium-gain horn beside the rim
+  for (const [x, z] of [
+    [-0.9, 0.9],
+    [0.9, -0.9],
+    [-0.9, -0.9],
+  ]) {
+    const lg = cyl(0.03, 0.03, 0.3, white, 8);
+    lg.position.set(x, 0.55, z);
+    hga.add(lg);
+  } // the low-gain antennas
+  // the solar arrays on their yokes from the sides of the propulsion module (±X), the cells toward +Z. Stowed, each
+  // array is a stack of its five panels standing on edge against the body's side, its long edge along the body; on
+  // deployment the stack swings out on its yoke (f 0 → 0.4), then the panels unfold (0.4 → 1)
+  const arrays = [];
+  for (const s of [-1, 1]) {
+    const yoke = new THREE.Group();
+    yoke.position.set(s * CL_PM_R, CL_PM_H * 0.5, 0);
+    yoke.rotation.y = s < 0 ? Math.PI : 0;
+    g.add(yoke);
+    const arm = new THREE.Group();
+    yoke.add(arm);
+    arm.add(m20Bar([0, 0, 0], [0.9, 0, 0], 0.04, alu));
+    arm.add(m20Bar([0, 0.5, 0], [0.9, 0, 0], 0.025, alu));
+    arm.add(m20Bar([0, -0.5, 0], [0.9, 0, 0], 0.025, alu));
+    const hub = cyl(0.12, 0.12, 0.3, dark, 16);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(0.9, 0, 0);
+    arm.add(hub);
+    const arr = clArray(s);
+    yoke.add(arr);
+    const pw = CL_ARRAY[0] / CL_PANELS;
+    arr.userData.swing = (f) => {
+      // between the stowed pose (the stack flat against the side, centred on the body) and the deployed one (out along the yoke)
+      arr.position.set(
+        twLerp(0.2, 0.95, f),
+        twLerp(0.55, 0, f),
+        twLerp(-pw / 2, 0, f),
+      );
+      arr.rotation.set(0, twLerp(-Math.PI / 2, 0, f), 0);
+      arm.scale.x = Math.max(twLerp(0.15, 1, f), 1e-3);
+    };
+    arrays.push(arr);
+  }
+  // the magnetometer boom from the top of the propulsion module, three sensors along it; stowed, it lies along the body
+  const boom = new THREE.Group();
+  boom.position.set(0.3, CL_PM_H - 0.1, CL_PM_R);
+  g.add(boom);
+  const can = cyl(0.14, 0.14, 0.3, alu, 16);
+  can.rotation.x = Math.PI / 2;
+  can.position.z = -0.15;
+  boom.add(can);
+  const pole = twBarMesh(0.035, mat("#d9dcdf", "metal"));
+  boom.add(pole);
+  const sensors = [0.4, 0.7, 1.0].map((f) => {
+    const sn = box(0.14, 0.1, 0.1, mat("#d7a94a", "gold"));
+    boom.add(sn);
+    return { sn, f };
+  });
+  const setBoom = (f) => {
+    const L = 0.3 + (CL_MAG - 0.3) * f;
+    twSetBar(pole, [0, 0, 0], [0, 0, L]);
+    for (const { sn, f: k } of sensors) sn.position.set(0, -0.05, L * k);
+    boom.rotation.x = 0;
+  };
+  // folded (f = 0): the arrays stacked against the body and the antennas along them, the boom in its canister;
+  // deployed (1): all out. Arrays over the first two hours after separation, the boom at three days, the radar at a month
+  const pose = (fa, fb, fr) => {
+    for (const a of arrays) {
+      a.userData.swing(twPhase(fa, 0, 0.4));
+      a.userData.fold(twPhase(fa, 0.4, 1));
+      a.userData.deployAnt(fr);
+    }
+    setBoom(fb);
+  };
+  const D = 86400;
+  if (flags.deployT != null)
+    g.userData.animate = (t) => {
+      const dt = t - flags.deployT;
+      pose(
+        twPhase(dt, 1800, 7200),
+        twPhase(dt, 3 * D, 3 * D + 1200),
+        twPhase(dt, 30 * D, 30 * D + 3600),
+      );
+    };
+  const stowed = flags.stowed || flags.deployT != null;
+  pose(stowed ? 0 : 1, stowed ? 0 : 1, stowed ? 0 : 1);
+  g.userData.len = CL_PM_H + CL_VAULT[1] + 1.2;
+  g.userData.mounts = [{ y: -0.12, r: 0.1, tag: "SC" }];
+  return g;
+}
+
+// ==== 3a_starship.js
+// ============================================================================
+// Starship (Block 2) drawn over its stages' plain geometry (src/vehicles.js, look: 'starshipBooster' / 'starshipShip';
+// called from buildStage with the stage's group, bottom at y = 0, 4.5 m radius). Both stages are stainless steel, welded
+// from rings 1.83 m tall with the long seams of their sheets; the Ship wears black hexagonal heat-shield tiles on its
+// windward half (−X, the side the attitude code turns into the airflow) and on the windward faces of its four flaps:
+// the forward pair small and set back from the nose on the leeward side (Block 2), the aft pair large, hinged along the
+// tile edge. The booster: a vented hot-staging ring on top, four grid fins just under it, the engine skirt round its
+// 33 Raptors. Sizes from SpaceX's published figures (ship 52 m, booster 71 m, 9 m across; flaps and fins estimated
+// from photographs).
+// ============================================================================
+const SS = { mats: {} };
+let ssSeed = 7;
+const ssRnd = () => (ssSeed = (ssSeed * 9301 + 49297) % 233280) / 233280;
+// the skin: brushed stainless steel, two welded rings (3.66 m) per repeat, the sheets' vertical seams; with tiles: the
+// −X half (u 0.5…1) in black hexagons, the tiles' edges a little lighter, a few darker ones
+function ssSkinMat(tiles) {
+  const key = tiles ? "tiles" : "steel";
+  if (SS.mats[key]) return SS.mats[key];
+  const W = 1024,
+    H = 512,
+    c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d");
+  g.fillStyle = "#b4b9bf";
+  g.fillRect(0, 0, W, H);
+  ssSeed = 7;
+  for (let i = 0; i < 2400; i++) {
+    g.fillStyle =
+      ssRnd() > 0.5 ? "rgba(255,255,255,0.06)" : "rgba(40,44,50,0.06)";
+    g.fillRect(ssRnd() * W, ssRnd() * H, 1 + ssRnd() * 2, 10 + ssRnd() * 60);
+  } // the brushing
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = `rgba(${(120 + ssRnd() * 60) | 0},${(110 + ssRnd() * 50) | 0},${(90 + ssRnd() * 30) | 0},0.08)`;
+    g.fillRect(ssRnd() * W, ssRnd() * H, 20 + ssRnd() * 120, 8 + ssRnd() * 40);
+  } // heat tint
+  g.fillStyle = "rgba(70,75,82,0.5)";
+  for (const y of [0, H / 2]) g.fillRect(0, y, W, 3); // ring welds
+  for (let x = 0; x < W; x += W / 8) g.fillRect(x, 0, 2, H); // sheet seams
+  if (tiles) {
+    const r = 6.5,
+      dx = r * Math.sqrt(3),
+      dy = r * 1.5;
+    g.fillStyle = "#17181a";
+    g.fillRect(W / 2, 0, W / 2, H);
+    for (let j = -1; j * dy < H + r; j++)
+      for (let i = -1; i * dx < W / 2 + r; i++) {
+        const cx = W / 2 + i * dx + (j % 2 ? dx / 2 : 0),
+          cy = j * dy;
+        const v = 20 + ssRnd() * 14;
+        g.fillStyle = `rgb(${v},${v + 1},${v + 3})`;
+        g.beginPath();
+        for (let k = 0; k < 6; k++) {
+          const a = Math.PI / 6 + (k * Math.PI) / 3;
+          g.lineTo(cx + (r - 0.7) * Math.cos(a), cy + (r - 0.7) * Math.sin(a));
+        }
+        g.closePath();
+        g.fill();
+      }
+    g.fillStyle = "rgba(180,185,190,0.35)";
+    g.fillRect(W / 2 - 1, 0, 2, H);
+    g.fillRect(W - 1, 0, 2, H); // the tile edge
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  // metalness and roughness by half: steel bright, tiles matt (a second map, the same split)
+  const c2 = document.createElement("canvas");
+  c2.width = 64;
+  c2.height = 4;
+  const g2 = c2.getContext("2d");
+  g2.fillStyle = "rgb(0,80,210)";
+  g2.fillRect(0, 0, 64, 4);
+  if (tiles) {
+    g2.fillStyle = "rgb(0,200,40)";
+    g2.fillRect(32, 0, 32, 4);
+  } // G roughness, B metalness
+  const rm = new THREE.CanvasTexture(c2);
+  rm.wrapS = rm.wrapT = THREE.RepeatWrapping;
+  rm.magFilter = THREE.NearestFilter;
+  return (SS.mats[key] = new THREE.MeshStandardMaterial({
+    map: t,
+    roughnessMap: rm,
+    metalnessMap: rm,
+    roughness: 1,
+    metalness: 1,
+  }));
+}
+// a stage's skin: the plain cylinders take the steel, with the welds repeating every two rings of its height
+function ssSkin(g, tiles) {
+  const m = ssSkinMat(tiles);
+  for (const o of g.children)
+    if (o.isMesh && o.geometry.type === "CylinderGeometry") {
+      const h = o.geometry.parameters.height,
+        mm = m.clone();
+      mm.map = m.map.clone();
+      mm.map.repeat.set(1, h / 3.66);
+      mm.map.needsUpdate = true;
+      o.material = mm;
+    }
+}
+// a flap: hinged along the body (its hinge line along +Y at the group's origin, the flap out along +Z), its planform the
+// Ship's (the outer edge straight, the leading corner cut back to the body), thick at the root and thinning to the
+// edges, tiles on its −X (windward) face and steel on the back. pts: the outline in (out, along) metres, from the hinge
+// at the aft corner round to the hinge at the forward corner
+function ssFlap(pts, thick) {
+  const s = new THREE.Shape();
+  pts.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  s.closePath();
+  const span = Math.max(...pts.map((p) => p[0]));
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: thick,
+    bevelEnabled: true,
+    bevelThickness: 0.18,
+    bevelSize: 0.22,
+    bevelSegments: 3,
+  });
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const k = 1 - 0.65 * clamp(p.getX(i) / span, 0, 1);
+    p.setZ(i, (p.getZ(i) - thick / 2) * k);
+  } // thinner toward the outer edge
+  geo.rotateY(-Math.PI / 2);
+  geo.computeVertexNormals(); // the shape's x → +Z (out from the body), its thickness along X
+  const f = new THREE.Mesh(geo, mat("#b4b9bf", "metal"));
+  const cap = new THREE.Mesh(
+    new THREE.ShapeGeometry(s),
+    mat("#1a1b1e", "tile"),
+  );
+  cap.rotation.y = -Math.PI / 2;
+  cap.position.x = -thick / 2 - 0.2;
+  f.add(cap); // the windward face, tiled
+  return f;
+}
+// the nose: a tangent ogive L long on the body radius R, as a lathe (tiles on its windward half like the body's)
+function ssOgive(L, R, seg = 40, from = 0) {
+  const rho = (R * R + L * L) / (2 * R),
+    pts = [];
+  for (let i = 0; i <= seg; i++) {
+    const y = from + ((L - from) * i) / seg,
+      r = Math.sqrt(Math.max(rho * rho - y * y, 0)) + R - rho;
+    pts.push(new THREE.Vector2(Math.max(r, 0.02) * 1.0, y));
+  }
+  return new THREE.LatheGeometry(pts, 64);
+}
+// the corrugated steel of the engine skirts (vertical hat stringers)
+function ssCorrugated() {
+  if (SS.corr) return SS.corr;
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 64;
+  const g = c.getContext("2d");
+  for (let x = 0; x < 512; x++) {
+    const ph = (x % 8) / 8,
+      v = 150 + 70 * Math.cos(ph * TAU);
+    g.fillStyle = `rgb(${v},${v + 3},${v + 6})`;
+    g.fillRect(x, 0, 1, 64);
+  }
+  g.fillStyle = "rgba(60,64,70,0.6)";
+  g.fillRect(0, 0, 512, 2);
+  g.fillRect(0, 62, 512, 2);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(18, 1);
+  t.anisotropy = 8;
+  return (SS.corr = new THREE.MeshStandardMaterial({
+    map: t,
+    roughness: 0.4,
+    metalness: 0.75,
+    side: THREE.DoubleSide,
+  }));
+}
+const STAGE_LOOK_SS = {
+  // Super Heavy: the steel tank, the hot-staging ring on top (dark, vented), the grid fins below it, the engine skirt
+  starshipBooster(g, st) {
+    ssSkin(g, false);
+    const top = st.geom[0][0] + st.geom[1][0],
+      dark = mat("#2c2e31", "dark"),
+      steel = mat("#9ea3a8", "metal");
+    const ring = g.children[1];
+    if (ring && ring.isMesh) ring.material = dark;
+    for (let k = 0; k < 24; k++) {
+      const a = (k * TAU) / 24;
+      const v = box(0.5, 1.2, 0.3, mat("#0d0e10", "dark"));
+      v.position.set(Math.cos(a) * 4.52, top - 1.6, Math.sin(a) * 4.52);
+      v.rotation.y = -a;
+      g.add(v);
+    } // the vents
+    for (let k = 0; k < 4; k++) {
+      // the grid fins, in two pairs off the ±X sides (the vehicle's windward sides), folded out
+      const a = (k < 2 ? 0.5 : -0.5) * 0.55 + (k % 2 ? Math.PI : 0),
+        fin = new THREE.Group();
+      fin.position.set(Math.cos(a) * 4.5, top - 5.2, Math.sin(a) * 4.5);
+      fin.rotation.y = -a;
+      g.add(fin);
+      const frame = box(3.0, 0.25, 2.0, dark);
+      frame.position.set(1.5, 0, 0);
+      frame.geometry.translate(0, -0.125, 0);
+      fin.add(frame);
+      for (let i = 1; i < 6; i++) {
+        const b = box(0.06, 0.22, 2.0, steel);
+        b.position.set(i * 0.5, 0, 0);
+        fin.add(b);
+      }
+      for (let i = 1; i < 4; i++) {
+        const b = box(3.0, 0.22, 0.06, steel);
+        b.position.set(1.5, 0, -1 + i * 0.5);
+        fin.add(b);
+      }
+      const shaft = cyl(0.3, 0.3, 0.6, steel, 12);
+      shaft.rotation.z = -Math.PI / 2;
+      shaft.position.set(0.3, 0, 0);
+      fin.add(shaft);
+    }
+    // the engine section: the corrugated steel skirt round the engines, and the twenty heat-shield cowls over the outer
+    // ring's engine mounts, a pod each at the skirt's rim
+    const skirt = cyl(4.55, 4.55, 3.8, ssCorrugated(), 48, true);
+    skirt.position.y = -0.6;
+    g.add(skirt);
+    for (let k = 0; k < 20; k++) {
+      const a = (k * TAU) / 20 + 0.1;
+      const pod = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.62, 1.1, 4, 12),
+        mat("#c3c7cb", "metal"),
+      );
+      pod.position.set(Math.cos(a) * 4.45, 0.75, Math.sin(a) * 4.45);
+      pod.scale.set(1, 1, 0.7);
+      pod.rotation.y = -a;
+      g.add(pod);
+    }
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(4.5, 48),
+      mat("#3a3d41", "dark"),
+    );
+    shield.rotation.x = Math.PI / 2;
+    shield.position.y = -0.35;
+    g.add(shield); // the engine shield the Raptors hang from
+    for (let k = 0; k < 4; k++) {
+      const a = (k * TAU) / 4 + TAU / 8;
+      const p = box(1.1, 10, 0.5, mat("#9ea3a8", "metal"));
+      p.position.set(Math.cos(a) * 4.55, 3, Math.sin(a) * 4.55);
+      p.rotation.y = -a;
+      g.add(p);
+    } // raceways and the catch pins' housings
+    for (const s of [1, -1]) {
+      const pin = cyl(0.45, 0.45, 1.2, steel, 12);
+      pin.rotation.z = (-Math.PI / 2) * s;
+      pin.position.set(s * 4.7, top - 7.2, 0);
+      g.add(pin);
+    } // the lift pins the tower catches it by
+  },
+  // the Ship: the steel body with tiles on its windward half, the ogive nose with its black tip, the four flaps
+  starshipShip(g, st) {
+    ssSkin(g, true);
+    const body = st.geom[0][0],
+      L = st.geom[1][0],
+      top = body + L;
+    const nose = g.children[1];
+    if (nose && nose.isMesh) {
+      // the plain cone becomes the ogive, in the tiled skin
+      nose.geometry.dispose();
+      nose.geometry = ssOgive(L, 4.5);
+      nose.position.y = body;
+      const m = ssSkinMat(true).clone();
+      m.map = m.map.clone();
+      m.map.repeat.set(1, L / 3.66);
+      m.map.needsUpdate = true;
+      nose.material = m;
+    }
+    const tip = new THREE.Mesh(
+      ssOgive(L, 4.5, 16, L - 4.2),
+      mat("#141517", "tile"),
+    );
+    tip.scale.set(1.01, 1, 1.01);
+    tip.position.y = body;
+    g.add(tip); // the tip, tiled all round for its last 4 m
+    // the aft flaps (±Z, hinged along the body with their tiled face to −X): 9.6 m along the body, 4.4 m out at the root,
+    // the leading corner cut back to the body; the hinge fairings (aerocovers) at their roots on the windward side
+    const aft = [
+      [0, 0],
+      [4.4, 0],
+      [4.4, 3.2],
+      [3.5, 5.8],
+      [1.0, 9.3],
+      [0, 9.6],
+    ];
+    for (const s of [-1, 1]) {
+      const f = ssFlap(aft, 0.9);
+      f.position.set(-0.3, 0.6, s * 4.25);
+      f.scale.z = s;
+      g.add(f);
+      const cov = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.9, 0.9, 9.6, 14, 1, false, 0, Math.PI),
+        mat("#1a1b1e", "tile"),
+      );
+      cov.rotation.y = -Math.PI / 2;
+      cov.position.set(-0.9, 5.4, s * 4.0);
+      g.add(cov);
+    }
+    // the forward flaps (Block 2): small, 5.2 m along the lower nose, set round toward the lee side (+X) out of the airflow
+    const fwd = [
+      [0, 0],
+      [2.9, 0],
+      [2.9, 1.3],
+      [0.5, 5.6],
+      [0, 5.9],
+    ]; // (a triangle swept back to the body, two thirds of Block 1's)
+    for (const s of [-1, 1]) {
+      const phi = 0.5,
+        r = 4.3,
+        f = ssFlap(fwd, 0.55);
+      f.position.set(Math.sin(phi) * r, body + 1.2, s * Math.cos(phi) * r);
+      f.scale.z = s;
+      f.rotation.y = s * phi;
+      g.add(f);
+      const cov = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 0.5, 5.6, 12, 1, false, 0, Math.PI),
+        mat("#1a1b1e", "tile"),
+      );
+      cov.rotation.y = -Math.PI / 2 + s * phi;
+      cov.position.set(
+        Math.sin(phi) * (r - 0.4),
+        body + 4.0,
+        s * Math.cos(phi) * (r - 0.4),
+      );
+      g.add(cov);
+    }
+    const skirt = cyl(4.5, 4.5, 2.4, ssCorrugated(), 48, true);
+    skirt.position.y = -0.6;
+    g.add(skirt); // the engine skirt
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(4.45, 48),
+      mat("#3a3d41", "dark"),
+    );
+    shield.rotation.x = Math.PI / 2;
+    shield.position.y = -0.15;
+    g.add(shield);
+  },
+};
+Object.assign(STAGE_LOOK, STAGE_LOOK_SS);
+
+// ==== 3b_launchers.js
+// ============================================================================
+// The launchers drawn by hand over their stages' plain geometry (src/vehicles.js, look; called from buildStage with the
+// stage's group, bottom at y = 0, and opts.az: a booster's bearing round the core, radians from +X): Falcon Heavy's
+// cores, the SLS core and boosters, Long March 5's core and boosters. Markings are read off photographs and are
+// approximate; the shapes are from published dimensions.
+// ============================================================================
+// a canvas drawn round a stage: w pixels round, h along it; the drawing's y = 0 is the stage's top
+function skinTex(w, h, draw, repeatY = 1) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d");
+  draw(g, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1, repeatY);
+  return t;
+}
+// lettering along a stage, reading downward: at u (0…1 round), from v0 to v1 (0 top … 1 bottom), the text as tall as
+// size (a fraction of the width round)
+function skinText(g, w, h, text, u, v0, v1, size, color, font = "bold") {
+  g.save();
+  g.translate(u * w, v0 * h);
+  g.rotate(Math.PI / 2);
+  g.fillStyle = color;
+  g.textBaseline = "middle";
+  const px = size * w;
+  g.font = `${font} ${px}px Helvetica, Arial, sans-serif`;
+  const len = (v1 - v0) * h,
+    tw = g.measureText(text).width;
+  g.scale(len / Math.max(tw, 1), 1);
+  g.fillText(text, 0, 0);
+  g.restore();
+}
+const LN_MATS = {};
+const lnMat = (key, make) => LN_MATS[key] || (LN_MATS[key] = make());
+let lnSeed = 7;
+const lnRnd = () => (lnSeed = (lnSeed * 9301 + 49297) % 233280) / 233280;
+// ---------------- Falcon Heavy ----------------
+// A core: the white tank with SPACEX down one side and the flag, the grey raceway along it, the black engine section round
+// the octaweb (flown expendable, no legs or grid fins). The centre core keeps its black interstage; a side booster's top
+// band is white, under an ogive nose.
+function falconSkinMat() {
+  return lnMat("falcon", () => {
+    const t = skinTex(1024, 4096, (g, w, h) => {
+      g.fillStyle = "#ecebe6";
+      g.fillRect(0, 0, w, h);
+      lnSeed = 7;
+      for (let i = 0; i < 400; i++) {
+        g.fillStyle =
+          lnRnd() > 0.5 ? "rgba(255,255,255,0.35)" : "rgba(120,118,112,0.06)";
+        g.fillRect(
+          lnRnd() * w,
+          lnRnd() * h,
+          2 + lnRnd() * 6,
+          20 + lnRnd() * 160,
+        );
+      } // the tank's faint grain
+      g.fillStyle = "rgba(0,0,0,0.07)";
+      for (const v of [0.06, 0.31, 0.56, 0.62, 0.81])
+        g.fillRect(0, v * h, w, 3); // the welds between the tank's barrels and domes
+      skinText(g, w, h, "SPACEX", 0.27, 0.07, 0.27, 0.085, "#2b2d31");
+      skinText(g, w, h, "FALCON HEAVY", 0.77, 0.09, 0.22, 0.03, "#4b4d52");
+      g.fillStyle = "#b22234";
+      g.fillRect(0.235 * w, 0.29 * h, 0.07 * w, 0.014 * h);
+      g.fillStyle = "#ffffff";
+      for (let i = 1; i < 7; i += 2)
+        g.fillRect(0.235 * w, (0.29 + 0.002 * i) * h, 0.07 * w, 0.002 * h);
+      g.fillStyle = "#3c3b6e";
+      g.fillRect(0.235 * w, 0.29 * h, 0.028 * w, 0.0075 * h); // the flag
+      g.fillStyle = "rgba(0,0,0,0.12)";
+      g.fillRect(0.495 * w, 0, 0.012 * w, h); // the shadow under the raceway
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+  });
+}
+function falconCore(g, st, opts, centre) {
+  const tank = g.children[0];
+  if (tank && tank.isMesh) tank.material = falconSkinMat();
+  const L0 = st.geom[0][0],
+    r = st.geom[0][1],
+    dark = mat("#17181a", "dark"),
+    grey = mat("#9a9c9f", "metal");
+  if (!centre) {
+    const band = g.children[1];
+    if (band && band.isMesh) band.material = falconSkinMat();
+  } // (no interstage on a side booster)
+  const skirt = cyl(r + 0.01, r + 0.01, 3.4, dark, 48, true);
+  g.add(skirt); // the engine section round the octaweb
+  const plate = new THREE.Mesh(new THREE.CircleGeometry(r, 48), dark);
+  plate.rotation.x = Math.PI / 2;
+  plate.position.y = 0.02;
+  g.add(plate);
+  const race = box(0.32, L0 - 3.4, 0.14, grey);
+  race.position.set(0, 3.4, r);
+  g.add(race); // the raceway, +Z (seen from the pad it runs down the side away from the tower)
+  if (!centre) {
+    // the nose: an ogive over the tank's top ring in place of the plain cone
+    const cone = g.children[2];
+    if (cone && cone.isMesh) {
+      cone.visible = false;
+      const nose = ogive(r, st.geom[2][0] + 1.0, falconSkinMat(), 0.12);
+      nose.position.y = L0 + st.geom[1][0];
+      g.add(nose);
+    }
+  } else {
+    // the centre core's interstage: black, with the separation pushers' housings
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2 + Math.PI / 4;
+      const h = box(0.5, 1.6, 0.35, dark);
+      h.position.set(
+        Math.cos(a) * (r + 0.05),
+        L0 + 1.2,
+        Math.sin(a) * (r + 0.05),
+      );
+      h.rotation.y = -a;
+      g.add(h);
+    }
+  }
+  // the attach hardware between the cores: the nose-level and aft struts' fittings on the side facing the core
+  if (opts && opts.az != null) {
+    const a = opts.az + Math.PI;
+    for (const y of [2.0, L0 - 1.5]) {
+      const f = box(0.9, 1.0, 0.5, grey);
+      f.position.set(Math.cos(a) * (r - 0.1), y, Math.sin(a) * (r - 0.1));
+      f.rotation.y = -a;
+      g.add(f);
+    }
+  }
+}
+// ---------------- SLS Block 1 ----------------
+// The core: the orange spray-on foam over the whole stage, the barrels' seams, the intertank with its stringers and the
+// NASA worm and flag, the engine section with the four RS-25s behind a dark heat shield. A booster: white, five motor
+// segments with their joints, the systems tunnel down its side, the forward frustum and nose cone.
+function slsFoamMat() {
+  return lnMat("slsFoam", () => {
+    const t = skinTex(1024, 4096, (g, w, h) => {
+      g.fillStyle = "#d4752c";
+      g.fillRect(0, 0, w, h);
+      lnSeed = 31;
+      for (let i = 0; i < 6000; i++) {
+        g.fillStyle =
+          lnRnd() > 0.5 ? "rgba(255,200,140,0.10)" : "rgba(120,50,10,0.10)";
+        g.fillRect(lnRnd() * w, lnRnd() * h, 2 + lnRnd() * 5, 2 + lnRnd() * 5);
+      } // the foam's mottle
+      g.fillStyle = "rgba(70,30,5,0.35)";
+      for (const v of [
+        0.045, 0.1, 0.22, 0.245, 0.33, 0.47, 0.61, 0.75, 0.89, 0.97,
+      ])
+        g.fillRect(0, v * h, w, 4); // the seams: LOX tank, intertank, LH2 tank barrels
+      // the intertank (a sixth of the way down): stringers, the NASA worm and the flag
+      g.fillStyle = "rgba(80,35,8,0.28)";
+      for (let x = 0; x < w; x += 16) g.fillRect(x, 0.1 * h, 5, 0.12 * h);
+      g.fillStyle = "#c9581f";
+      g.fillRect(0.3 * w, 0.112 * h, 0.4 * w, 0.096 * h); // a plainer patch under the markings
+      skinText(g, w, h, "NASA", 0.44, 0.118, 0.2, 0.09, "#e4322b", "900");
+      g.fillStyle = "#b22234";
+      g.fillRect(0.56 * w, 0.125 * h, 0.1 * w, 0.03 * h);
+      g.fillStyle = "#ffffff";
+      for (let i = 1; i < 13; i += 2)
+        g.fillRect(0.56 * w, (0.125 + 0.0023 * i) * h, 0.1 * w, 0.0023 * h);
+      g.fillStyle = "#3c3b6e";
+      g.fillRect(0.56 * w, 0.125 * h, 0.04 * w, 0.0162 * h);
+      g.fillStyle = "rgba(0,0,0,0.10)";
+      g.fillRect(0.745 * w, 0, 0.014 * w, h); // the shadow under the systems tunnel
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.75,
+      metalness: 0.0,
+    });
+  });
+}
+function slsBoosterMat() {
+  return lnMat("slsSrb", () => {
+    const t = skinTex(512, 4096, (g, w, h) => {
+      g.fillStyle = "#eceae4";
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = "rgba(0,0,0,0.22)";
+      for (let i = 1; i < 5; i++) g.fillRect(0, (0.08 + 0.184 * i) * h, w, 4); // the field joints between the five segments
+      g.fillStyle = "rgba(0,0,0,0.10)";
+      for (let i = 0; i < 5; i++) g.fillRect(0, (0.172 + 0.184 * i) * h, w, 2); // the factory joints
+      g.fillStyle = "#2a2b2e";
+      g.fillRect(0, 0.0 * h, w, 0.012 * h); // the forward skirt's dark ring
+      skinText(g, w, h, "NASA", 0.3, 0.22, 0.3, 0.13, "#e4322b", "900");
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.6,
+      metalness: 0.02,
+    });
+  });
+}
+// ---------------- Long March 5 ----------------
+// White, with the national flag and blue bands; the boosters' noses are cut on a slant, their tips leaning in toward
+// the core (opts.az: the booster's bearing). Only CZ-5 Latin lettering (the Chinese characters need fonts a browser may
+// not have).
+function lm5CoreMat() {
+  return lnMat("lm5core", () => {
+    const t = skinTex(1024, 4096, (g, w, h) => {
+      g.fillStyle = "#eeede8";
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = "#1f4e9c";
+      g.fillRect(0, 0.02 * h, w, 0.012 * h);
+      g.fillRect(0, 0.235 * h, w, 0.006 * h); // the blue bands
+      g.fillStyle = "#d62a1e";
+      g.fillRect(0.42 * w, 0.06 * h, 0.16 * w, 0.03 * h);
+      g.fillStyle = "#f5d000";
+      g.fillRect(0.435 * w, 0.065 * h, 0.03 * w, 0.008 * h); // the flag
+      skinText(g, w, h, "CZ-5", 0.5, 0.11, 0.17, 0.08, "#1f4e9c", "900");
+      g.fillStyle = "rgba(0,0,0,0.07)";
+      for (const v of [0.26, 0.5, 0.74]) g.fillRect(0, v * h, w, 3);
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+  });
+}
+function lm5BoosterMat() {
+  return lnMat("lm5bst", () => {
+    const t = skinTex(512, 2048, (g, w, h) => {
+      g.fillStyle = "#eeede8";
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = "#1f4e9c";
+      g.fillRect(0, 0.03 * h, w, 0.015 * h);
+      g.fillStyle = "#d62a1e";
+      g.fillRect(0.42 * w, 0.09 * h, 0.16 * w, 0.045 * h);
+      g.fillStyle = "#f5d000";
+      g.fillRect(0.435 * w, 0.097 * h, 0.03 * w, 0.012 * h);
+      g.fillStyle = "rgba(0,0,0,0.07)";
+      for (const v of [0.3, 0.6, 0.9]) g.fillRect(0, v * h, w, 3);
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+  });
+}
+// a nose cone cut on a slant: the tip moved by lean (m) toward the bearing a (radians) in the stage's frame
+function slantNose(r, len, lean, a, material) {
+  const pts = [];
+  const n = 14;
+  pts.push(new THREE.Vector2(r, 0));
+  for (let i = 1; i <= n; i++) {
+    const f = i / n;
+    pts.push(
+      new THREE.Vector2(
+        Math.max(r * (1 - f) * (1 + 0.35 * f * (1 - f)), 0.02),
+        len * f,
+      ),
+    );
+  }
+  const geo = new THREE.LatheGeometry(pts, 40),
+    P = geo.attributes.position;
+  for (let i = 0; i < P.count; i++) {
+    const k = P.getY(i) / len;
+    P.setX(i, P.getX(i) + Math.cos(a) * lean * k * k);
+    P.setZ(i, P.getZ(i) + Math.sin(a) * lean * k * k);
+  }
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, material);
+}
+// ---------------- Ariane 5 ECA ----------------
+// The core's foam-covered tank, off-white, with the livery's blue band and 'ariane 5' in lower case down its side; the
+// boosters white with the dark ring at the forward skirt and an ogive nose; the upper stage white over a dark skirt ring.
+function ariane5CoreMat() {
+  return lnMat("a5core", () => {
+    const t = skinTex(1024, 4096, (g, w, h) => {
+      g.fillStyle = "#ece8dc";
+      g.fillRect(0, 0, w, h);
+      lnSeed = 17;
+      for (let i = 0; i < 3000; i++) {
+        g.fillStyle =
+          lnRnd() > 0.5 ? "rgba(255,250,240,0.12)" : "rgba(150,130,100,0.08)";
+        g.fillRect(lnRnd() * w, lnRnd() * h, 2 + lnRnd() * 4, 2 + lnRnd() * 4);
+      } // the foam
+      g.fillStyle = "#1f4e9c";
+      g.fillRect(0, 0.12 * h, w, 0.04 * h); // the blue band
+      skinText(g, w, h, "ariane 5", 0.5, 0.2, 0.46, 0.09, "#1f4e9c", "bold");
+      g.fillStyle = "rgba(0,0,0,0.07)";
+      for (const v of [0.3, 0.55, 0.8]) g.fillRect(0, v * h, w, 3); // the tank's ring seams
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.7,
+      metalness: 0.0,
+    });
+  });
+}
+const STAGE_LOOK_LN = {
+  ariane5EPC(g) {
+    const tank = g.children[0];
+    if (tank && tank.isMesh) tank.material = ariane5CoreMat();
+  },
+  ariane5EAP(g, st) {
+    const body = g.children[0];
+    if (body && body.isMesh) body.material = mat("#eeede8", "paint");
+    const r = st.geom[0][1],
+      L = st.geom[0][0];
+    const cone = g.children[1];
+    if (cone && cone.isMesh) {
+      cone.visible = false;
+      const nose = ogive(r, st.geom[1][0] + 0.4, mat("#eeede8", "paint"), 0.1);
+      nose.position.y = L;
+      g.add(nose);
+    }
+    const ring = cyl(r + 0.01, r + 0.01, 0.8, mat("#2a2b2e", "dark"), 40, true);
+    ring.position.y = L - 0.8;
+    g.add(ring); // the forward skirt's dark ring
+    const skirt = cyl(
+      r + 0.01,
+      r + 0.01,
+      2.2,
+      mat("#8d9094", "metal"),
+      40,
+      true,
+    );
+    g.add(skirt); // the aft skirt round the nozzle
+  },
+  ariane5ESC(g, st) {
+    const r = st.geom[0][1];
+    const ring = cyl(r + 0.01, r + 0.01, 0.6, mat("#2a2b2e", "dark"), 40, true);
+    g.add(ring);
+  },
+  falconSide(g, st, opts) {
+    falconCore(g, st, opts, false);
+  },
+  falconCentre(g, st, opts) {
+    falconCore(g, st, opts, true);
+  },
+  slsCore(g, st) {
+    for (const c of g.children)
+      if (c.isMesh && c.geometry.type === "CylinderGeometry")
+        c.material = slsFoamMat();
+    const top = g.children[2];
+    if (top && top.isMesh) top.material = mat("#e9e7e1", "paint"); // the forward skirt / launch vehicle stage adapter, white
+    const r = st.geom[0][1];
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(r * 0.98, 48),
+      mat("#2a2b2e", "dark"),
+    );
+    shield.rotation.x = Math.PI / 2;
+    shield.position.y = 0.05;
+    g.add(shield);
+    const tun = box(
+      0.5,
+      st.geom[0][0] + st.geom[1][0] - 1,
+      0.2,
+      mat("#c26a2a", "paint"),
+    );
+    tun.position.set(
+      -st.geom[1][1] * Math.cos(0.2),
+      0.5,
+      -st.geom[1][1] * Math.sin(0.2),
+    );
+    tun.rotation.y = -0.2;
+    g.add(tun); // the systems tunnel
+  },
+  slsBooster(g, st, opts) {
+    const body = g.children[1];
+    if (body && body.isMesh) body.material = slsBoosterMat();
+    const r = st.geom[1][1],
+      L = st.geom[0][0] + st.geom[1][0];
+    const cone = g.children[2];
+    if (cone && cone.isMesh) {
+      cone.visible = false; // the forward frustum and the nose cone
+      const fr = cyl(r, 1.25, 2.6, mat("#e9e7e1", "paint"), 40);
+      fr.position.y = L;
+      g.add(fr);
+      const nose = ogive(1.25, 3.4, mat("#e9e7e1", "paint"), 0.1);
+      nose.position.y = L + 2.6;
+      g.add(nose);
+    }
+    const a = (opts && opts.az != null ? opts.az : 0) + Math.PI / 2; // the systems tunnel, on the side away from the core's attach struts
+    const tun = box(0.45, L - 3, 0.22, mat("#2d2e31", "dark"));
+    tun.position.set(Math.cos(a) * r, 2.6, Math.sin(a) * r);
+    tun.rotation.y = -a;
+    g.add(tun);
+    if (opts && opts.az != null) {
+      const b = opts.az + Math.PI;
+      for (const [y, h] of [
+        [2.4, 1.2],
+        [L - 6, 1.6],
+      ]) {
+        const f = box(1.4, h, 0.6, mat("#9a9c9f", "metal"));
+        f.position.set(Math.cos(b) * (r - 0.1), y, Math.sin(b) * (r - 0.1));
+        f.rotation.y = -b;
+        g.add(f);
+      }
+    } // the aft and forward attach fittings
+    const skirt = g.children[0];
+    if (skirt && skirt.isMesh) skirt.material = mat("#d9d7d1", "paint");
+  },
+  lm5Core(g) {
+    const tank = g.children[0];
+    if (tank && tank.isMesh) tank.material = lm5CoreMat();
+  },
+  lm5Booster(g, st, opts) {
+    const tank = g.children[0];
+    if (tank && tank.isMesh) tank.material = lm5BoosterMat();
+    const cone = g.children[1];
+    if (cone && cone.isMesh) {
+      cone.visible = false;
+      const a = (opts && opts.az != null ? opts.az : 0) + Math.PI;
+      const nose = slantNose(
+        st.geom[0][1],
+        st.geom[1][0],
+        1.1,
+        a,
+        mat("#eeede8", "paint"),
+      );
+      nose.position.y = st.geom[0][0];
+      g.add(nose);
+    }
+    const skirt = cyl(
+      st.geom[0][1] + 0.01,
+      st.geom[0][1] + 0.01,
+      1.6,
+      mat("#8d9094", "metal"),
+      40,
+      true,
+    );
+    g.add(skirt); // the aft skirt round the two YF-100s
+  },
+};
+Object.assign(STAGE_LOOK, STAGE_LOOK_LN);
+
+// ==== 3c_jwst.js
+// ============================================================================
+// The James Webb Space Telescope (2021), metres, y = 0 at the foot of the spacecraft bus, +Y the deployable tower's
+// axis. Published (NASA/ESA): the primary mirror is 18 gold-coated beryllium hexagons 1.32 m across flat to flat, 6.5 m
+// in all, the column of three on either side folded back for launch; the secondary mirror, 0.74 m, stands on a 7-m
+// tripod; the sunshield is five kite-shaped layers of aluminised Kapton 21.2 × 14.2 m, folded on two pallets round the
+// bus for launch and drawn open by two mid-booms; the deployable tower lifts the telescope 1.2 m off the bus; the
+// five-panel solar array, the high-gain antenna, the aft radiator and the momentum flap all unfold on the way. Stowed
+// it stood 10.7 m tall inside Ariane's 5.4-m fairing. The mirror stands on edge across the shield's short axis, looking
+// out along +Z over the forward pallet. Where a size is not published it is estimated from photographs and NASA's
+// renderings (the pink layers with their seams fanning from the corners, the black spreader bars at the tips, the black
+// aft-optics wedge in the mirror's centre, the pale solar array).
+// flags.stowed draws the launch pose; flags.deploy (the scenario's deployment table) with flags.deployT (launch) drives
+// each part along its own step of that table, so the telescope unfolds over its first two weeks as the real one did.
+// ============================================================================
+const JW = {};
+// the sunshield's membrane: lavender aluminised Kapton with its seams fanning from the four corners and ripples between
+// them, as a colour map and a normal map over the kite's UV square (u across the long axis, v across the short one)
+function jwKiteTex(tint) {
+  const key = "kite" + tint;
+  if (JW[key]) return JW[key];
+  const w = 512,
+    H = new Float32Array(w * w);
+  let s = 7;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const inKite = (x, y) =>
+    Math.abs(x / w - 0.5) * 2 + Math.abs(y / w - 0.5) * 2 <= 1.0;
+  // the seams: from each corner of the kite, lines fanning across to the far edges (the membranes are sewn in gores)
+  const corners = [
+    [0, 0.5],
+    [1, 0.5],
+    [0.5, 0],
+    [0.5, 1],
+  ];
+  const line = (x0, y0, x1, y1, amp, wid) => {
+    const dx = x1 - x0,
+      dy = y1 - y0,
+      L = Math.hypot(dx, dy),
+      ux = dx / L,
+      uy = dy / L;
+    for (let t = 0; t < L; t += 1) {
+      const cx = x0 + ux * t,
+        cy = y0 + uy * t;
+      for (let o = -wid; o <= wid; o++) {
+        const px = Math.round(cx - uy * o),
+          py = Math.round(cy + ux * o);
+        if (px < 0 || py < 0 || px >= w || py >= w) continue;
+        H[py * w + px] += amp * (1 - Math.abs(o) / (wid + 1));
+      }
+    }
+  };
+  for (const [cx, cy] of corners)
+    for (let k = 0; k < 7; k++) {
+      const a = (k + 0.5) / 7;
+      const tx =
+        cx < 0.5 && cy === 0.5
+          ? 0.5 + a * 0.5
+          : cx > 0.5 && cy === 0.5
+            ? 0.5 - a * 0.5
+            : 0.5 + (a - 0.5) * 0.9;
+      const ty =
+        cy === 0.5
+          ? k % 2
+            ? 0.08 + a * 0.84
+            : 0.92 - a * 0.84
+          : cy < 0.5
+            ? 0.5 + a * 0.5
+            : 0.5 - a * 0.5;
+      line(cx * w, cy * w, tx * w, ty * w, 0.26, 1);
+    }
+  // ripples: long shallow creases roughly along the seams, and short ones anywhere
+  for (let n = 0; n < 260; n++) {
+    const x0 = rnd() * w,
+      y0 = rnd() * w,
+      ang = rnd() * Math.PI,
+      len = 20 + rnd() * 160,
+      amp = (rnd() - 0.5) * 0.5,
+      wid = 2 + rnd() * 6;
+    line(x0, y0, x0 + Math.cos(ang) * len, y0 + Math.sin(ang) * len, amp, wid);
+  }
+  const mk = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = w;
+    return c;
+  };
+  const col = mk(),
+    nor = mk(),
+    g = col.getContext("2d"),
+    gn = nor.getContext("2d"),
+    img = g.createImageData(w, w),
+    imn = gn.createImageData(w, w);
+  const cB = new THREE.Color(tint),
+    cH = cB.clone().lerp(new THREE.Color("#ffffff"), 0.45),
+    cL = cB.clone().multiplyScalar(0.62),
+    c = new THREE.Color();
+  for (let y = 0; y < w; y++)
+    for (let x = 0; x < w; x++) {
+      const k = y * w + x,
+        hx = H[y * w + Math.min(x + 1, w - 1)] - H[y * w + Math.max(x - 1, 0)],
+        hy = H[Math.min(y + 1, w - 1) * w + x] - H[Math.max(y - 1, 0) * w + x];
+      const sh = clamp(0.5 + hx * 1.4 - hy * 0.9 + (rnd() - 0.5) * 0.06, 0, 1);
+      if (sh > 0.5) c.copy(cB).lerp(cH, (sh - 0.5) * 2);
+      else c.copy(cL).lerp(cB, sh * 2);
+      if (!inKite(x, y)) c.copy(cB);
+      img.data[4 * k] = c.r * 255;
+      img.data[4 * k + 1] = c.g * 255;
+      img.data[4 * k + 2] = c.b * 255;
+      img.data[4 * k + 3] = 255;
+      const nx = -hx * 2.2,
+        ny = -hy * 2.2,
+        nl = Math.hypot(nx, ny, 1);
+      imn.data[4 * k] = ((nx / nl) * 0.5 + 0.5) * 255;
+      imn.data[4 * k + 1] = ((ny / nl) * 0.5 + 0.5) * 255;
+      imn.data[4 * k + 2] = ((1 / nl) * 0.5 + 0.5) * 255;
+      imn.data[4 * k + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  gn.putImageData(imn, 0, 0);
+  const map = new THREE.CanvasTexture(col);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+  const nmap = new THREE.CanvasTexture(nor);
+  return (JW[key] = { map, nmap });
+}
+// a dark composite with the lattice of a truss showing through: the backplane and the tower
+function jwTrussMat() {
+  if (JW.truss) return JW.truss;
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#17181c";
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = "#2b2d33";
+  g.lineWidth = 3;
+  for (let i = -256; i < 512; i += 64) {
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i + 256, 256);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(i + 256, 0);
+    g.lineTo(i, 256);
+    g.stroke();
+  }
+  g.strokeStyle = "#34363c";
+  g.lineWidth = 4;
+  for (let i = 0; i <= 256; i += 64) {
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i, 256);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(0, i);
+    g.lineTo(256, i);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 2);
+  return (JW.truss = new THREE.MeshStandardMaterial({
+    map: t,
+    color: "#ffffff",
+    roughness: 0.62,
+    metalness: 0.3,
+  }));
+}
+// the solar array's cells: pale blue-grey with the grid of cell edges
+function jwCellMat() {
+  if (JW.cell) return JW.cell;
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#b6c3d6";
+  g.fillRect(0, 0, 256, 128);
+  g.strokeStyle = "#8d9bb0";
+  g.lineWidth = 2;
+  for (let x = 0; x <= 256; x += 32) {
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x, 128);
+    g.stroke();
+  }
+  for (let y = 0; y <= 128; y += 32) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(256, y);
+    g.stroke();
+  }
+  g.strokeStyle = "#6f7d93";
+  g.lineWidth = 4;
+  g.strokeRect(0, 0, 256, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return (JW.cell = new THREE.MeshStandardMaterial({
+    map: t,
+    roughness: 0.45,
+    metalness: 0.2,
+  }));
+}
+// The observatory: the published model of the deployed telescope (assets/jwst.glb, by Paul on Sketchfab, CC BY 4.0,
+// cut into its moving parts by tools/models), folded and unfolded by the same steps as the hand drawing, which is shown
+// until the file arrives (or if it cannot be loaded) and for the launch pose
+const JW_S = 21.2 / 31.08; // metres per unit of the file (tools/models/build.mjs)
+function jwstFineModel(parts) {
+  const g = new THREE.Group(),
+    P = {};
+  for (const k of [
+    "bus",
+    "shield",
+    "fwdPallet",
+    "aftPallet",
+    "solar",
+    "hga",
+    "tel",
+    "wingL",
+    "wingR",
+    "tripod",
+    "topStrut",
+  ]) {
+    P[k] = parts[k] ? parts[k].clone() : new THREE.Group();
+  }
+  const telG = new THREE.Group();
+  g.add(telG);
+  for (const k of ["bus", "shield", "fwdPallet", "aftPallet", "solar", "hga"])
+    g.add(P[k]);
+  for (const k of ["tel", "wingL", "wingR", "tripod", "topStrut"])
+    telG.add(P[k]);
+  const lerp = (a, b, f) => a + (b - a) * f;
+  // the apex of the tripod and the foot of the third strut, in the telescope's frame (the file's units → metres)
+  const apex0 = new THREE.Vector3(0, (5.0 - 4.0) * JW_S, 13.5 * JW_S),
+    pvT = P.tripod.position.clone(),
+    pfS = P.topStrut.position.clone(),
+    d0 = apex0.clone().sub(pfS),
+    a0 = Math.atan2(d0.y, d0.z),
+    L0 = d0.length();
+  const _ap = new THREE.Vector3(),
+    _d = new THREE.Vector3();
+  g.userData.pose = (f) => {
+    telG.position.y = lerp(-0.8, 0, f("dta"));
+    P.wingL.rotation.y = (-(1 - f("portWing")) * Math.PI) / 2;
+    P.wingR.rotation.y = ((1 - f("stbdWing")) * Math.PI) / 2; // (folded back behind the mirror)
+    const th = -1.215 * (1 - f("smss"));
+    P.tripod.rotation.x = th; // (folded up the mirror's face)
+    _ap
+      .copy(apex0)
+      .sub(pvT)
+      .applyAxisAngle(new THREE.Vector3(1, 0, 0), th)
+      .add(pvT);
+    _d.copy(_ap).sub(pfS);
+    P.topStrut.rotation.x = a0 - Math.atan2(_d.y, _d.z);
+    P.topStrut.scale.setScalar(Math.max(0.05, _d.length() / L0));
+    P.fwdPallet.rotation.x = (-(1 - f("fwdPallet")) * Math.PI) / 2;
+    P.aftPallet.rotation.x = ((1 - f("aftPallet")) * Math.PI) / 2; // (standing up for launch)
+    const open = Math.min(f("fwdPallet"), f("aftPallet")),
+      ten =
+        (f("tension1") +
+          f("tension2") +
+          f("tension3") +
+          f("tension4") +
+          f("tension5")) /
+        5;
+    P.shield.scale.set(
+      lerp(0.12, 1, f("booms")),
+      lerp(0.35, 1, ten),
+      lerp(0.12, 1, open),
+    );
+  };
+  g.userData.len = 12.0;
+  g.userData.mounts = [{ y: 0, r: 0.3, tag: "OBS", prop: "mmh" }];
+  return g;
+}
+function jwstModel(flags = {}) {
+  const g = new THREE.Group(),
+    hand = jwstHandModel(flags);
+  g.add(hand);
+  g.userData = { ...hand.userData };
+  const steps = flags.deploy || [],
+    stowed = flags.stowed || flags.deployT != null;
+  const F = (t) => {
+    const Q = {};
+    for (const s of steps)
+      Q[s.key] = smoothstep(
+        clamp((t - (flags.deployT + s.at)) / Math.max(s.dur, 1), 0, 1),
+      );
+    return (k) => (flags.stowed ? 0 : flags.deployT == null ? 1 : (Q[k] ?? 1));
+  };
+  let fine = null,
+    fPose = F(flags.deployT || 0);
+  // the hand drawing while the pallets are still up round the folded telescope (the launch pose, the first three days),
+  // the published model from the moment they are down: its parts fold the rest of the way
+  const useFine = (f) => fine && f("fwdPallet") >= 1 && f("aftPallet") >= 1;
+  const show = (f) => {
+    const u = useFine(f);
+    if (fine && fine.visible !== !!u) {
+      fine.visible = !!u;
+      hand.visible = !u;
+      refreshBounds(g);
+    }
+  };
+  const put = (parts) => {
+    if (!parts || !parts.bus) return;
+    fine = jwstFineModel(parts);
+    fine.userData.pose(fPose);
+    fine.visible = false;
+    g.add(fine);
+    show(fPose);
+  };
+  if (!flags.stowed) {
+    if (DETAIL.ready.jwst !== undefined) put(DETAIL.ready.jwst);
+    else detailFile("jwst").then(put);
+  }
+  if (flags.deployT != null)
+    g.userData.animate = (t) => {
+      fPose = F(t);
+      if (fine) fine.userData.pose(fPose);
+      if (hand.userData.animate) hand.userData.animate(t);
+      show(fPose);
+    };
+  return g;
+}
+function jwstHandModel(flags = {}) {
+  const g = new THREE.Group();
+  const dark = mat("#2a2c31", "dark"),
+    alu = mat("#b9bec5", "metal"),
+    black = mat("#141518", "dark"),
+    truss = jwTrussMat();
+  // the gold: metallic, but with a glow of its own colour so that it reads as gold in the dark of space, where a true
+  // metal reflects nothing but black
+  const gold =
+    JW.gold ||
+    (JW.gold = new THREE.MeshStandardMaterial({
+      color: "#e9b94c",
+      roughness: 0.22,
+      metalness: 0.85,
+      emissive: "#5a3c0c",
+      emissiveIntensity: 1,
+    }));
+  const foil =
+    typeof foilMat === "function"
+      ? foilMat("mylar", 2)
+      : mat("#d9dce0", "foil");
+  const lerp = (a, b, f) => a + (b - a) * f;
+  // ---- the spacecraft bus: aluminium panels under silver blankets, its thrusters, star trackers and radiators ----
+  const bus = box(3.5, 1.5, 3.5, foil);
+  g.add(bus);
+  const busTrim = box(3.6, 0.12, 3.6, alu);
+  busTrim.position.y = 1.5;
+  g.add(busTrim);
+  for (const [x, z] of [
+    [-1.2, -1.2],
+    [1.2, -1.2],
+    [-1.2, 1.2],
+    [1.2, 1.2],
+  ]) {
+    const t = cyl(0.07, 0.12, 0.22, alu, 12);
+    t.rotation.x = Math.PI;
+    t.position.set(x, 0.02, z);
+    g.add(t);
+  } // the SCAT thrusters at the corners
+  const thr = cyl(0.12, 0.08, 0.25, alu, 12);
+  thr.rotation.x = Math.PI;
+  thr.position.y = 0.02;
+  g.add(thr); // the main engine
+  for (const z of [-0.5, 0.5]) {
+    const st = cyl(0.12, 0.1, 0.45, black, 12);
+    st.rotation.z = -Math.PI / 2;
+    st.position.set(1.75, 0.9, z);
+    g.add(st);
+  } // star trackers on the +X face
+  const radB = box(1.2, 0.9, 0.05, alu);
+  radB.position.set(-1.0, 0.3, 1.76);
+  g.add(radB); // a radiator panel on the +Z face
+  // ---- the solar array: five pale panels on a hinge at the aft foot of the bus; a stack under the bus for launch, the
+  // strip swung down toward the Sun once free ----
+  const solarHinge = new THREE.Group();
+  solarHinge.position.set(-1.7, 0.05, 0);
+  g.add(solarHinge);
+  const wing = new THREE.Group();
+  wing.position.y = -0.08;
+  solarHinge.add(wing);
+  {
+    const cellM = jwCellMat(),
+      pw = 1.0;
+    for (let i = 0; i < 5; i++) {
+      const p = new THREE.Mesh(
+        new THREE.BoxGeometry(pw * 0.96, 0.04, 2.0),
+        cellM,
+      );
+      p.position.x = pw * (i + 0.5) + 0.3;
+      wing.add(p);
+    }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.08, 0.08), alu);
+    arm.position.set(2.7, -0.06, 0);
+    wing.add(arm);
+  }
+  // ---- the high-gain antenna on its boom at the bus's −Z corner, a silver dish ----
+  const hga = new THREE.Group();
+  hga.position.set(1.2, 0.3, -1.6);
+  g.add(hga);
+  const hgaBoom = cyl(0.04, 0.04, 1.0, alu, 10);
+  hgaBoom.rotation.x = Math.PI;
+  hga.add(hgaBoom);
+  const hgaDish = dish(0.6, "#d8dce2");
+  hgaDish.rotation.x = Math.PI;
+  hgaDish.position.y = -1.0;
+  hga.add(hgaDish);
+  // ---- the sunshield pallets, hinged along the bus's ±Z edges: standing up either side of the folded telescope for
+  // launch (the membranes folded inside them), then lowered flat under the shield ----
+  const pallets = [-1, 1].map((s) => {
+    const p = new THREE.Group();
+    p.position.set(0, 1.5, s * 1.75);
+    g.add(p);
+    const slab = box(3.4, 0.3, 4.0, dark);
+    slab.position.z = s * 2.0;
+    p.add(slab);
+    const hinge = cyl(0.08, 0.08, 3.6, alu, 10);
+    hinge.rotation.z = Math.PI / 2;
+    hinge.position.x = 1.8;
+    p.add(hinge);
+    p.userData.s = s;
+    p.userData.slab = slab;
+    return p;
+  });
+  // ---- the five layers of the sunshield: kites across the bus, stacked between it and the telescope, the Sun side
+  // pink-lavender and the telescope side cooler; the layers held apart at the four tips by spreader bars, their edges
+  // drawn taut by cables; the two mid-booms under them along ±X ----
+  const kite = new THREE.Shape();
+  kite.moveTo(-10.6, 0);
+  kite.lineTo(0, 7.1);
+  kite.lineTo(10.6, 0);
+  kite.lineTo(0, -7.1);
+  kite.closePath();
+  const kiteGeo = new THREE.ShapeGeometry(kite, 1);
+  {
+    const p = kiteGeo.attributes.position,
+      uv = [];
+    for (let i = 0; i < p.count; i++)
+      uv.push((p.getX(i) + 10.6) / 21.2, (p.getY(i) + 7.1) / 14.2);
+    kiteGeo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  }
+  kiteGeo.rotateX(-Math.PI / 2);
+  const shield = new THREE.Group();
+  shield.position.y = 1.65;
+  g.add(shield);
+  const kiteMat = (tint) => {
+    const key = "kiteM" + tint;
+    if (JW[key]) return JW[key];
+    const T = jwKiteTex(tint);
+    return (JW[key] = new THREE.MeshStandardMaterial({
+      map: T.map,
+      normalMap: T.nmap,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+      roughness: 0.32,
+      metalness: 0.6,
+      side: THREE.DoubleSide,
+    }));
+  };
+  const layers = [];
+  for (let i = 0; i < 5; i++) {
+    const L = new THREE.Mesh(
+      kiteGeo,
+      kiteMat(i === 4 ? "#b9c3d3" : i === 0 ? "#e2bfe0" : "#dcc4e4"),
+    );
+    L.position.y = i * 0.3;
+    const sc = 1 - 0.012 * i;
+    L.scale.set(sc, 1, sc);
+    shield.add(L);
+    layers.push(L);
+  }
+  for (const [x, z] of [
+    [-10.5, 0],
+    [10.5, 0],
+    [0, 7.0],
+    [0, -7.0],
+  ]) {
+    const bar = box(0.22, 1.9, 0.22, black);
+    bar.position.set(x, -0.3, z);
+    shield.add(bar);
+  } // the spreader bars at the tips
+  for (const [a, b] of [
+    [
+      [-10.6, 0],
+      [0, 7.1],
+    ],
+    [
+      [0, 7.1],
+      [10.6, 0],
+    ],
+    [
+      [10.6, 0],
+      [0, -7.1],
+    ],
+    [
+      [0, -7.1],
+      [-10.6, 0],
+    ],
+  ]) {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]),
+      c = cyl(0.025, 0.025, L, black, 6);
+    c.position.set(a[0], 1.35, a[1]);
+    c.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3((b[0] - a[0]) / L, 0, (b[1] - a[1]) / L),
+    );
+    shield.add(c);
+  } // the edge cables along the top layer
+  const booms = [-1, 1].map((s) => {
+    const b = cyl(0.1, 0.1, 10.6, black, 12);
+    b.rotation.z = (-s * Math.PI) / 2;
+    b.position.set(0, 2.3, 0);
+    g.add(b);
+    return b;
+  });
+  // the momentum flap at the aft tip of the shield, trimming the push of sunlight
+  const flapHinge = new THREE.Group();
+  flapHinge.position.set(0, 1.65, -7.0);
+  g.add(flapHinge);
+  const flap = box(1.8, 0.9, 0.04, alu);
+  flap.rotation.x = 0.35;
+  flapHinge.add(flap);
+  // ---- the deployable tower, and the telescope on it: the primary mirror stands on edge across the shield's short axis,
+  // looking out along +Z over the forward pallet, 6.6 m tall and 6.1 m across with its wings out; the secondary on its
+  // tripod 7 m in front. Folded, the wings swing back behind it and the tripod lies up its face: 3.8 m across, 10.7 m tall ----
+  const dta = cyl(0.3, 0.3, 1.0, truss, 20);
+  dta.position.y = 1.5;
+  g.add(dta);
+  const tel = new THREE.Group();
+  g.add(tel);
+  const yc = 3.7; // the mirror's centre above the tower's top
+  const back = box(3.8, 6.6, 0.3, truss);
+  back.position.set(0, yc - 3.3, -0.3);
+  tel.add(back); // the backplane, a carbon truss
+  const aft = box(1.2, 1.4, 1.4, black);
+  aft.position.set(0, yc - 0.7, -1.7);
+  tel.add(aft); // the instrument module behind
+  const aos = box(0.72, 0.8, 1.3, black);
+  aos.position.set(0, yc - 0.4, 0.05);
+  tel.add(aos); // the aft optics, a black wedge standing out of the mirror's centre
+  const radHinge = new THREE.Group();
+  radHinge.position.set(0, yc - 1.0, -1.7);
+  tel.add(radHinge); // the radiator, swinging down behind
+  const rad = box(2.0, 0.04, 1.5, alu);
+  rad.position.z = -0.75;
+  radHinge.add(rad);
+  // the eighteen hexagons, 1.32 m flat to flat, stacked across their flats in columns, a dark gap between them and a
+  // bevel at each edge: a centre ring of six about the hole, a ring of twelve outside; the outer column of three on
+  // either side is a wing
+  const hexGeo = new THREE.CylinderGeometry(0.625, 0.645, 0.07, 6);
+  hexGeo.rotateX(Math.PI / 2);
+  hexGeo.rotateZ(Math.PI / 6); // facing +Z, flats up and down
+  const R1 = 1.32,
+    R2 = 2.286;
+  const cells = [];
+  for (let k = 0; k < 6; k++) {
+    const a = (k * Math.PI) / 3 + Math.PI / 6;
+    cells.push([R1 * Math.cos(a), R1 * Math.sin(a)]);
+    cells.push([2 * R1 * Math.cos(a), 2 * R1 * Math.sin(a)]);
+    const b = (k * Math.PI) / 3;
+    cells.push([R2 * Math.cos(b), R2 * Math.sin(b)]);
+  }
+  const wings = [-1, 1].map((s) => {
+    const w = new THREE.Group();
+    w.position.set(s * 1.7, yc, 0);
+    tel.add(w);
+    const bp = box(1.4, 4.0, 0.3, truss);
+    bp.position.set(s * 0.7, -2.0, -0.3);
+    w.add(bp);
+    w.userData.s = s;
+    return w;
+  });
+  for (const [x, y] of cells) {
+    const h = new THREE.Mesh(hexGeo, gold);
+    const s = Math.sign(x);
+    if (Math.abs(x) > 2.2) {
+      h.position.set(x - s * 1.7, y, 0);
+      wings[s < 0 ? 0 : 1].add(h);
+    } else {
+      h.position.set(x, yc + y, 0);
+      tel.add(h);
+    }
+  }
+  // the secondary mirror on its tripod: two struts from the mirror's lower corners, hinged there, and one from the top
+  // of the backplane that follows the apex; folded, the apex lies up the mirror's face, deployed it stands 7 m before it
+  const smHinge = new THREE.Group();
+  smHinge.position.set(0, yc - 3.1, 0.1);
+  tel.add(smHinge);
+  const apex = new THREE.Vector3(0, 3.1, 7.0); // in the hinge's frame: out in front of the mirror's centre
+  for (const [bx, by, bz] of [
+    [-2.3, 0, -0.2],
+    [2.3, 0, -0.2],
+  ]) {
+    const d = apex.clone().sub(new THREE.Vector3(bx, by, bz)),
+      L = d.length();
+    const strut = cyl(0.06, 0.06, L, black, 8);
+    strut.position.set(bx, by, bz);
+    strut.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      d.normalize(),
+    );
+    smHinge.add(strut);
+  }
+  const smHouse = box(0.55, 0.55, 0.6, black);
+  smHouse.position.set(0, apex.y - 0.3, apex.z);
+  smHinge.add(smHouse); // the secondary's housing
+  const sm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.37, 0.37, 0.06, 24),
+    gold,
+  );
+  sm.rotation.x = Math.PI / 2;
+  sm.position.set(0, apex.y, apex.z - 0.32);
+  smHinge.add(sm); // the 0.74-m secondary, facing the primary
+  const topFoot = new THREE.Vector3(0, yc + 3.25, -0.2),
+    topStrut = cyl(0.06, 0.06, 1, black, 8);
+  topStrut.position.copy(topFoot);
+  tel.add(topStrut);
+  const _ap = new THREE.Vector3();
+  const aimTop = () => {
+    smHinge.updateMatrix();
+    _ap.copy(apex).applyMatrix4(smHinge.matrix).sub(topFoot);
+    const L = _ap.length();
+    topStrut.scale.y = L;
+    topStrut.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      _ap.normalize(),
+    );
+  };
+  // ---- the pose: each part between its launch position (0) and its final one (1) ----
+  const pose = (P) => {
+    const f = (k) => P[k] ?? 1;
+    solarHinge.rotation.z = lerp(0, -1.25, f("solar"));
+    wing.scale.x = lerp(0.2, 1, f("solar"));
+    hga.rotation.x = lerp(-Math.PI / 2, 0, f("hga"));
+    for (const p of pallets) {
+      p.rotation.x =
+        p.userData.s *
+        lerp(-Math.PI / 2, 0, f(p.userData.s < 0 ? "fwdPallet" : "aftPallet"));
+      p.userData.slab.material = f("covers") > 0.5 ? foil : dark;
+    }
+    const rise = f("dta");
+    dta.scale.y = lerp(1, 2.2, rise);
+    tel.position.y = 2.5 + lerp(0, 1.2, rise);
+    const open = Math.min(f("fwdPallet"), f("aftPallet")),
+      bo = f("booms");
+    shield.scale.set(lerp(0.12, 1, bo), 1, lerp(0.12, 1, open));
+    for (let i = 0; i < 5; i++) {
+      const ti = f("tension" + (i + 1));
+      layers[i].rotation.x = (i - 2) * 0.035 * ti;
+      layers[i].position.y = i * 0.3 + lerp(-0.1, 0, ti);
+    }
+    for (const b of booms) b.scale.y = Math.max(0.03, lerp(0.03, 1, bo));
+    flapHinge.rotation.x = lerp(Math.PI / 2, 0, f("flap"));
+    flapHinge.position.z = lerp(-1.0, -7.0, open);
+    radHinge.rotation.x = lerp(Math.PI / 2, 0, f("radiator")); // (folded up against the back)
+    smHinge.rotation.x = lerp(-1.154, 0, f("smss"));
+    aimTop(); // (folded, the tripod lies up the mirror's face)
+    for (const w of wings)
+      w.rotation.y =
+        w.userData.s *
+        lerp(Math.PI / 2, 0, f(w.userData.s < 0 ? "portWing" : "stbdWing")); // (folded back behind the mirror)
+  };
+  const steps = flags.deploy || [];
+  if (flags.deployT != null) {
+    g.userData.animate = (t) => {
+      const P = {};
+      for (const s of steps)
+        P[s.key] = smoothstep(
+          clamp((t - (flags.deployT + s.at)) / Math.max(s.dur, 1), 0, 1),
+        );
+      pose(P);
+    };
+    g.userData.done = (t) =>
+      steps.length > 0 && steps.every((s) => t >= flags.deployT + s.at + s.dur);
+  }
+  const stowed = flags.stowed || flags.deployT != null;
+  const P0 = {};
+  if (stowed)
+    for (const k of [
+      "solar",
+      "hga",
+      "fwdPallet",
+      "aftPallet",
+      "dta",
+      "flap",
+      "covers",
+      "booms",
+      "tension1",
+      "tension2",
+      "tension3",
+      "tension4",
+      "tension5",
+      "smss",
+      "radiator",
+      "portWing",
+      "stbdWing",
+    ])
+      P0[k] = 0;
+  pose(P0);
+  g.userData.len = 12.0;
+  g.userData.mounts = [{ y: 0, r: 0.3, tag: "OBS", prop: "mmh" }];
+  return g;
+}
+
 // ==== 40_missionview.js
 // ============================================================================
 // Mission view: craft nodes (models, plumes, chutes, plasma), trajectory
@@ -10641,6 +12497,7 @@ function disposeTree(o) {
 }
 function clearMissionView() {
   for (const c of MV.crafts) {
+    contrailDispose(c);
     R.scene.remove(c.node);
     disposeTree(c.node);
     c.label && c.label.remove();
@@ -10668,6 +12525,7 @@ function clearMissionView() {
   }
   disposeExhaust();
   disposeRunway();
+  disposeTerrain();
   MV.crafts = [];
   MV.trails = [];
   MV.caps = [];
@@ -10737,6 +12595,7 @@ function setupMissionView(md) {
   buildSurfaceCaps(md);
   buildTracks(md);
   buildPad(md);
+  buildTerrain(md); // the real ground round the site, where its data is in assets/ (app/43_terrain.js)
   buildExhaust(md); // the trail through the air after liftoff (app/47_exhaust.js)
   MV.frameBuilt = null;
 }
@@ -10789,6 +12648,7 @@ function cfgAt(c, t) {
 const _q1 = new THREE.Quaternion(),
   _q2 = new THREE.Quaternion(),
   _q3 = new THREE.Quaternion(),
+  _vDock = new THREE.Vector3(),
   _axTumble = new THREE.Vector3(0.3, 0.2, 1).normalize();
 const _qHalfY = new THREE.Quaternion().setFromAxisAngle(
   new THREE.Vector3(0, 1, 0),
@@ -10940,6 +12800,11 @@ function noseDirection(c, s, t, cfgL, act) {
   }
   if (cfgL && cfgL.key === "launch" && t < MV.md.M.t0 + 1)
     return att(up, vperp(up));
+  if (c.o.model === "jwst" && cfgL && cfgL.key === "sc") {
+    const a = att(vunit(c.P), [0, 0, 1]);
+    a.coast = true;
+    return a;
+  } // Webb flies sunshield to the Sun, the telescope (+Y) away from it
   const v = vnorm(vD) > 1e-6 ? vD : up;
   const a = att(vunit(v), upR);
   a.coast = true;
@@ -11160,6 +13025,8 @@ function updateCraft(c, t, camPos) {
     c.node.visible = false;
     return;
   }
+  if (c.upT === t) return;
+  c.upT = t; // (already done this frame: a docked craft updates the station it hangs on first)
   const P = c.P;
   const O = R.O;
   c.node.position.set(P[0] - O[0], P[1] - O[1], P[2] - O[2]);
@@ -11191,10 +13058,29 @@ function updateCraft(c, t, camPos) {
     c.q.premultiply(_q2).premultiply(bodyQuat(s.ref, t, _q2));
   }
   if (jump) c.q.copy(_q1);
-  else c.q.slerp(_q1, 1 - Math.exp(-realDt * 5));
+  else
+    c.q.slerp(
+      _q1,
+      1 - Math.exp(-realDt * 5 * Math.max(1, (MV.rate || 1) / 20)),
+    ); // (quicker under a time-warp, or the lag behind an orbit's turning frame would show as a lean)
   c.qInit = true;
   c.lastT = t;
   c.qGround = s.surface ? s.ref : null;
+  (c.qTarget || (c.qTarget = new THREE.Quaternion())).copy(_q1);
+  // Docked to the station: the two are one rigid body. Each craft's drawn attitude eases toward its target, and under a
+  // fast time-warp the lag would turn each about its own centre, opening the docking interface; so the docked craft takes
+  // the station's drawn attitude and hangs off its drawn position at the fixed relative pose.
+  const host = cfgL && cfgL.docked && craftById("iss");
+  if (host && host !== c && host.s && host.P) {
+    if (host.upT !== t) updateCraft(host, t, camPos);
+    if (host.qTarget) {
+      _q2.copy(host.qTarget).invert();
+      const d = vsub(P, host.P);
+      _vDock.set(d[0], d[1], d[2]).applyQuaternion(_q2).applyQuaternion(host.q);
+      c.node.position.copy(host.node.position).add(_vDock);
+      c.q.copy(host.q).multiply(_q2.multiply(c.qTarget));
+    }
+  }
   c.node.quaternion.copy(c.q);
   // scale: metres → km; optionally enlarge distant craft
   const dist = Math.max(1e-9, camPos.distanceTo(c.node.position));
@@ -11227,6 +13113,7 @@ function updateCraft(c, t, camPos) {
   if (ud.animate) ud.animate(t); // parts in motion on their own timeline (the Shuttle's bay doors and robot arm, Hubble's door)
   // plumes
   updatePlumes(c, s, t, act, model);
+  if (c.o.model === "shuttle" || c.ctr) updateContrails(c, s, t, cfgL, model); // wingtip vortex trails in the glide home
   // parachutes
   const ch =
     cfgL && (cfgL.chutes || cfgL.chute) ? cfgL.chutes || cfgL.chute : 0;
@@ -11273,10 +13160,10 @@ function updatePlasma(c, s, t, model, chutes) {
   if (heat > 0.3 && !model.userData.plasmaGeo && !U.pending) {
     // scatter the points over the model ahead of the glow, when the browser is idle (~0.2 s)
     U.pending = true;
-    (window.requestIdleCallback || setTimeout)(() => {
+    whenIdle(() => {
       plasmaGeometry(model);
       U.pending = false;
-    });
+    }, 1500);
   }
   if (!(heat > 3) || chutes) {
     G.visible = false;
@@ -11487,7 +13374,11 @@ function updatePlumes(c, s, t, act, model) {
         thr *
         Math.pow(g0 / g1, 0.7);
       u.uDiam.value = look[1] * (1 - vac);
-      u.uTime.value = performance.now() / 1000;
+      u.uTime.value = clockMs() / 1000;
+      if (!u.tNoise.value) {
+        if (!EXH.tex) initExhaust();
+        u.tNoise.value = EXH.tex;
+      }
       c.flameLen = Math.max(c.flameLen, len);
       c.flameLum = Math.max(c.flameLum, look[0] * thr * (1 - 0.7 * vac)); // for the smoke it lights (app/47_exhaust.js)
       const dl = 5 * m.r;
@@ -11498,6 +13389,14 @@ function updatePlumes(c, s, t, act, model) {
         0.12,
         0.45,
       ); // the white-hot core: a few nozzle diameters long
+      u.uSoot.value =
+        prop === "kerolox"
+          ? 1
+          : prop === "solid"
+            ? 0.25
+            : /hypergolic|udmh|mmh/.test(prop)
+              ? 0.4
+              : 0; // kerosene burns rich and sooty; the hypergolics a little; hydrogen and methane clean
     }
   }
   for (; i < c.plumes.length; i++) c.plumes[i].visible = false;
@@ -11536,24 +13435,6 @@ function padIgnition(md, t) {
     dt,
   };
 }
-const GLSL_CLOUD_V = `
-#include <common>
-#include <logdepthbuf_pars_vertex>
-attribute float aSize; attribute float aA; attribute float aG; varying float vA; varying float vG; uniform float uPx;
-void main(){ vA = aA; vG = aG; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * uPx / max(-mv.z, 1e-9), 1.0, 1000.0);
-#include <logdepthbuf_vertex>
-}`;
-const GLSL_CLOUD_F = `
-#include <common>
-#include <logdepthbuf_pars_fragment>
-uniform vec3 uCol; uniform vec3 uGlow; varying float vA; varying float vG;
-void main(){
-  #include <logdepthbuf_fragment>
-  vec2 q = gl_PointCoord - 0.5; float d = length(q) * 2.0; float a = (1.0 - smoothstep(0.2, 1.0, d)) * vA; if (a < 0.01) discard;
-  vec3 c = mix(uCol * (0.8 + 0.25 * (0.5 - q.y)), uGlow, vG);
-  gl_FragColor = vec4(c, a);
-}`;
-const CLOUD_N = 420;
 const hash01 = (i) => {
   const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -11606,39 +13487,8 @@ function buildPad(md) {
       g.add(p);
     }
   }
-  // exhaust and steam billowing out of the flame trench (fixed to the pad, so it stays put as Earth turns)
-  const cg = new THREE.BufferGeometry();
-  cg.setAttribute(
-    "position",
-    new THREE.BufferAttribute(new Float32Array(3 * CLOUD_N), 3),
-  );
-  cg.setAttribute(
-    "aSize",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  cg.setAttribute(
-    "aA",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  cg.setAttribute(
-    "aG",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  const cm = new THREE.ShaderMaterial({
-    vertexShader: GLSL_CLOUD_V,
-    fragmentShader: GLSL_CLOUD_F,
-    uniforms: {
-      uPx: { value: 800 },
-      uCol: { value: new THREE.Color("#e8e4dc") },
-      uGlow: { value: new THREE.Color("#ffb15c") },
-    },
-    transparent: true,
-    depthWrite: false,
-  });
-  const cloud = new THREE.Points(cg, cm);
-  cloud.frustumCulled = false;
-  cloud.renderOrder = 4;
-  g.add(cloud);
+  const cloud = buildPadCloud();
+  g.add(cloud); // fire, exhaust and steam billowing out of the flame trench (app/48_padcloud.js)
   g.scale.setScalar(0.001);
   g.userData = {
     site: LAUNCH_SITES[md.cfg.site],
@@ -11664,7 +13514,7 @@ function updatePad(t) {
   const E = helio("earth", t).r;
   g.position.set(E[0] + r[0] - O[0], E[1] + r[1] - O[1], E[2] + r[2] - O[2]);
   basisQuat(vunit(r), localFrame("earth", r, t).north, g.quaternion);
-  g.visible = t < md.M.t0 + 3600 && camDistTo(g.position) < 400;
+  g.visible = camDistTo(g.position) < 400; // (whenever the camera is near: a return to the launch site lands beside the tower)
   if (!g.visible) return;
   if (g.userData.animate) g.userData.animate(t); // arms swinging away
   const t0 = md.M.t0,
@@ -11694,69 +13544,10 @@ function updatePad(t) {
     0.07 + 0.55 * bNow,
     0.06 + 0.2 * bNow,
   );
-  // sunlight on the cloud (night launches get a dim cloud lit orange by the flames)
-  const sunUp = vdot(vunit(vscale(E, -1)), vunit(r));
-  const day = clamp(0.2 + sunUp * 3, 0.12, 1);
-  const cl = g.userData.cloud,
-    A = cl.geometry.attributes,
-    pos = A.position.array,
-    size = A.aSize.array,
-    al = A.aA.array,
-    gl = A.aG.array;
-  cl.material.uniforms.uCol.value.setRGB(0.91 * day, 0.89 * day, 0.86 * day);
-  cl.material.uniforms.uPx.value =
-    R.height / (2 * Math.tan((R.camera.fov * DEG) / 2));
-  const span = (IG.t || 0) + 24,
-    foot = g.userData.foot;
-  let live = 0;
-  for (let i = 0; i < CLOUD_N; i++) {
-    const r1 = hash01(3 * i + 1),
-      r2 = hash01(3 * i + 2),
-      r3 = hash01(3 * i + 3);
-    const te = tIgn + (i / CLOUD_N) * span + r1 * 0.15,
-      a = t - te;
-    const k = a >= 0 ? blast(te) : 0;
-    if (k < 0.03 || a > 200) {
-      al[i] = 0;
-      continue;
-    }
-    let x, y, z, sz;
-    const kind = i % 5;
-    if (kind < 4) {
-      // fire, then smoke and steam, blasting out of both ends of the flame trench
-      const side = kind % 2 ? 1 : -1,
-        v0 = (45 + 40 * r2) * (0.35 + 0.65 * k) * (0.55 + 0.45 * sC),
-        tau = 3.0;
-      const d =
-        g.userData.trenchD + v0 * tau * (1 - Math.exp(-a / tau)) + 1.5 * a;
-      x = (r3 - 0.5) * (12 + 10 * a);
-      z = side * d;
-      y = 7 + (1.8 + 3 * r1) * a + 0.1 * a * a;
-      sz = (20 + 9 * a + 14 * r2) * (0.45 + 0.55 * sC);
-      gl[i] = clamp(k * (1 - a / (1.2 + 0.8 * sC)), 0, 1) * 0.9;
-    } else {
-      // steam from the water deluge, boiling up around the launch mount
-      const ang = r2 * TAU,
-        rr = foot + 6 + 8 * r3 + 3 * a;
-      x = Math.cos(ang) * rr;
-      z = Math.sin(ang) * rr;
-      y = g.userData.deckY + 2 + (4 + 4 * r1) * a;
-      sz = (10 + 6 * a) * (0.5 + 0.5 * sC);
-      gl[i] = clamp(k * (1 - a / 1.2), 0, 1) * 0.5;
-    }
-    pos[3 * i] = x;
-    pos[3 * i + 1] = y;
-    pos[3 * i + 2] = z;
-    size[i] = sz * 0.001;
-    al[i] = k * 0.8 * clamp(a / 0.4, 0, 1) * Math.exp(-a / 60);
-    live++;
-  }
-  A.position.needsUpdate = true;
-  A.aSize.needsUpdate = true;
-  A.aA.needsUpdate = true;
-  A.aG.needsUpdate = true;
-  cl.visible = live > 0;
+  const span = (IG.t || 0) + 24;
+  updatePadCloud(g, t, tIgn, span, blast, sC, md.L, sunUpAt(E, r));
 }
+const sunUpAt = (E, r) => vdot(vunit(vscale(E, -1)), vunit(r)); // the Sun's elevation (sine) at the pad
 function camDistTo(v) {
   return R.camera.position.distanceTo(v);
 }
@@ -12004,13 +13795,12 @@ function toFrameArr(frame, ts, P) {
       F[3 * i + 2] = z;
       continue;
     }
-    const ob = frame === "emrot" ? "earth" : frame;
-    const B = planetHelio(ob, t).r;
+    const B = planetHelio(frameBody(frame), t).r;
     x -= B[0];
     y -= B[1];
     z -= B[2];
-    if (frame === "emrot") {
-      const Rm = emRot(t);
+    const Rm = frameRot(frame, t);
+    if (Rm) {
       F[3 * i] = Rm[0] * x + Rm[3] * y + Rm[6] * z;
       F[3 * i + 1] = Rm[1] * x + Rm[4] * y + Rm[7] * z;
       F[3 * i + 2] = Rm[2] * x + Rm[5] * y + Rm[8] * z;
@@ -12361,16 +14151,21 @@ function emRot(t) {
     y = vcross(z, x);
   return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
 }
+// the rotating frames: both centred on the Earth, 'emrot' turning with the Moon, 'serot' (the Sun–Earth frame of src/halo.js) with the Sun
+function frameBody(frame) {
+  return frame === "emrot" || frame === "serot" ? "earth" : frame;
+}
+function frameRot(frame, t) {
+  return frame === "emrot" ? emRot(t) : frame === "serot" ? seRot(t) : null;
+}
 function frameOrigin(frame, t) {
-  return frame === "sun"
-    ? [0, 0, 0]
-    : helio(frame === "emrot" ? "earth" : frame, t).r;
+  return frame === "sun" ? [0, 0, 0] : helio(frameBody(frame), t).r;
 }
 function toFrame(frame, t, P) {
   const B = frameOrigin(frame, t);
   const d = vsub(P, B);
-  if (frame !== "emrot") return d;
-  const Rm = emRot(t);
+  const Rm = frameRot(frame, t);
+  if (!Rm) return d;
   return [
     Rm[0] * d[0] + Rm[3] * d[1] + Rm[6] * d[2],
     Rm[1] * d[0] + Rm[4] * d[1] + Rm[7] * d[2],
@@ -12385,6 +14180,7 @@ function chooseAutoFrame(t, P) {
     dMa = vnorm(vsub(P, helio("mars", t).r));
   if (dM < BODIES.moon.soi * 1.2 && md.cfg.dest !== "mars") return "moon";
   if (dMa < BODIES.mars.soi * 1.5) return "mars";
+  if (md.cfg.profile === "l2-halo" && dE > 6e5) return "serot"; // out toward L2 the Sun–Earth frame is the one the halo stands still in
   if (dE < BODIES.earth.soi * 1.3) return "earth";
   return "sun";
 }
@@ -12414,8 +14210,8 @@ function updateTrails(t, focusP, camDist) {
     if (need) tr.build(frame, f, t);
     const B = frameOrigin(frame, t);
     const O = R.O;
-    if (frame === "emrot") {
-      const Rm = emRot(t);
+    const Rm = frameRot(frame, t);
+    if (Rm) {
       const A = tr.anchor;
       const wa = [
         Rm[0] * A[0] + Rm[1] * A[1] + Rm[2] * A[2],
@@ -12574,13 +14370,15 @@ function updateVectors(c, t, tele) {
   const base = camD * 0.16;
   const pos = c.node.position;
   const items = [];
-  items.push({
-    id: "vel",
-    dir: tele.vRel,
-    mag: vnorm(tele.vRel),
-    txt: fSpeed(vnorm(tele.vRel)),
-    scale: 1,
-  });
+  // (not on the pad or the ground: the inertial velocity there is the planet's spin, an arrow lying sideways out of a vehicle that is standing still)
+  if (!(c.s && (c.s.pad || c.s.surface)))
+    items.push({
+      id: "vel",
+      dir: tele.vRel,
+      mag: vnorm(tele.vRel),
+      txt: fSpeed(vnorm(tele.vRel)),
+      scale: 1,
+    });
   const gmax = Math.max(...tele.grav.map((g) => g.a));
   for (const g of tele.grav) {
     if (!["earth", "moon", "sun", "mars"].includes(g.body)) continue;
@@ -12661,6 +14459,40 @@ function initBodyLabels() {
     $("#labels").append(el);
     return { name, el };
   });
+}
+// the Sun–Earth L2 point: a label with its dot, out past the Earth on the anti-Sun line, shown in the Sun–Earth frame
+// and, on a flight bound there, whenever the camera is far enough out to see the region
+const _l2v = new THREE.Vector3();
+function updateL2(t, camDist) {
+  if (!MV.l2) {
+    const el = h(
+      "div",
+      { class: "lbl body", style: "color:#9ab8ff" },
+      h("span", { class: "dot" }),
+      h("span", null, "Sun–Earth L2"),
+    );
+    $("#labels").append(el);
+    MV.l2 = { el };
+  }
+  const md = MV.md,
+    el = MV.l2.el;
+  const show =
+    MV.layers.labels &&
+    md &&
+    (MV.frame === "serot" || (md.cfg.profile === "l2-halo" && camDist > 2e5));
+  if (!show) {
+    el.style.transform = "translate(-9999px,0)";
+    return;
+  }
+  const E = helio("earth", t).r,
+    L = l2Point(t),
+    O = R.O;
+  _l2v.set(E[0] + L[0] - O[0], E[1] + L[1] - O[1], E[2] + L[2] - O[2]);
+  if (occluded(_l2v)) {
+    el.style.transform = "translate(-9999px,0)";
+    return;
+  }
+  placeLabel(el, _l2v, [], 3);
 }
 const _pv = new THREE.Vector3();
 function occluded(scenePos) {
@@ -13340,7 +15172,7 @@ function shuttleGround(c, s, t) {
 // The runway is drawn on the true sphere, SH_RWY_TOP above its elevation, while the surface patch under it is made of flat
 // facets that sag up to ~0.7 m below the sphere between their corners. Radius (km) of the drawn runway under a direction
 // in the planet's mesh frame, or null off the runway: what an orbiter standing on it rests on.
-const SH_RWY_TOP = 0.00003;
+const SH_RWY_TOP = 0.0006; // (60 cm: above the site's terrain too, app/43_terrain.js)
 function runwayRadius(body, dLoc) {
   const rw = SHV.rwy;
   if (!rw || body !== "earth") return null;
@@ -13526,6 +15358,1498 @@ function updateRunway(t) {
     sun = vunit(vscale(helio("earth", t).r, -1));
   const el = vdot(vunit(r), sun);
   SHV.lights.material.opacity = clamp((0.05 - el) / 0.1, 0, 1);
+}
+
+// ==== 43_terrain.js
+// ============================================================================
+// The real ground round the American launch and landing sites, drawn from data rather than photographed: the relief
+// from the USGS elevation model, the sea, lagoons, rivers, lakes and marsh from the National Hydrography Dataset, the
+// roads from the Census Bureau, the land coloured by the National Land Cover Database (tools/terrain/fetch.mjs writes
+// each site as assets/terrain_<id>.json; all of it public domain). The buildings are drawn by hand (app/44_buildings.js)
+// since no public-domain dataset has them.
+// The site is a square draped over the sphere in the planet's mesh frame, as the runway is (app/42_shuttleview.js): a
+// grid of heights with vertex colours and a fine scrub texture, water as flat polygons at their level, streams and roads
+// as strips on the ground. Where a pad or a runway stands the ground is flattened to its level so the pad's slab and the
+// runway lie on it; toward the rim the ground fades out and the globe's own map shows through. Without a site file the
+// pad's procedural ground stays, as before.
+// ============================================================================
+const TERRAIN_SITES = {
+  ksc: { lat: 28.615, lon: -80.655, km: 32 },
+  starbase: { lat: 25.997, lon: -97.155, km: 12 },
+  edwards: { lat: 34.93, lon: -117.85, km: 48 },
+  whitesands: { lat: 32.99, lon: -106.425, km: 32 },
+};
+const TER = { groups: [], missing: {}, pending: 0, anim: [] }; // anim: materials with a time (the flags)
+// the land's colours by NLCD class (sRGB), with how rough the scrub texture should show on each
+const TER_COVER = {
+  0: ["#8d8a60", 1],
+  11: ["#3d6a86", 0.2],
+  12: ["#e8ecf0", 0.3],
+  21: ["#8f9478", 0.7],
+  22: ["#8a8c80", 0.5],
+  23: ["#7d7e78", 0.4],
+  24: ["#6c6c6a", 0.3],
+  31: ["#c9bea4", 0.6],
+  41: ["#55733c", 1.2],
+  42: ["#3d5c34", 1.2],
+  43: ["#4f6b3c", 1.2],
+  51: ["#9c925e", 1],
+  52: ["#8f8c5e", 1],
+  71: ["#a6a26c", 0.9],
+  72: ["#aaa878", 0.8],
+  73: ["#9aa070", 0.8],
+  74: ["#8fa07e", 0.8],
+  81: ["#93a65c", 0.7],
+  82: ["#a89060", 0.6],
+  90: ["#4e6a45", 1.1],
+  95: ["#7a8a58", 0.9],
+};
+const TER_WATER = {
+  sea: "#22486b",
+  bay: "#23486a",
+  estuary: "#264c69",
+  lake: "#254a68",
+  reservoir: "#254a68",
+  river: "#284e6a",
+  swamp: "#3d5c56",
+  playa: "#cfc6ae",
+  water: "#254a68",
+};
+const TER_ROAD = {
+  primary: [18, "#4c4e52"],
+  secondary: [12, "#55575a"],
+  local: [7, "#62625e"],
+}; // (a little wider than life, so they read from a few kilometres up)
+// the site whose square holds the point (a little inside its edge)
+function terrainSiteFor(lat, lon) {
+  for (const [id, S] of Object.entries(TERRAIN_SITES)) {
+    const dN = (lat - S.lat) * 110.574,
+      dE = (lon - S.lon) * 111.32 * Math.cos(S.lat * DEG),
+      h = S.km / 2 - 0.5;
+    if (Math.abs(dN) < h && Math.abs(dE) < h && !TER.missing[id]) return id;
+  }
+  return null;
+}
+function b64(s, T) {
+  const bin = atob(s),
+    u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < u8.length; i++) u8[i] = bin.charCodeAt(i);
+  return new T(u8.buffer);
+}
+// the mission's sites: the launch site and, on a Shuttle flight, the landing runway
+function buildTerrain(md) {
+  disposeTerrain();
+  const want = new Set(),
+    S = LAUNCH_SITES[md.cfg.site],
+    rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
+  for (const p of [S, rw]) {
+    if (!p) continue;
+    const id = terrainSiteFor(p.lat, p.lon);
+    if (id) want.add(id);
+  }
+  for (const id of want) loadTerrain(id, md);
+}
+function loadTerrain(id, md) {
+  TER.pending++;
+  fetch(ASSET(`terrain_${id}.json`))
+    .then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then((T) => {
+      if (MV.md === md) terrainBuild(id, T, md);
+    })
+    .catch(() => {
+      TER.missing[id] = true;
+    }) // (no file for this site: the pad's procedural ground stays)
+    .finally(() => {
+      TER.pending--;
+    });
+}
+function disposeTerrain() {
+  for (const g of TER.groups) {
+    g.parent && g.parent.remove(g);
+    g.traverse((n) => {
+      if (n.geometry) n.geometry.dispose();
+      if (n.material && n.material !== padGround.mat) n.material.dispose();
+    });
+  }
+  TER.groups = [];
+  TER.anim = [];
+  if (MV.pad)
+    MV.pad.traverse((n) => {
+      if (n.userData.padGround) n.visible = true;
+    });
+}
+// ---- the build ----
+function terrainBuild(id, T, md) {
+  const S = TERRAIN_SITES[id],
+    b = R.bodies.earth,
+    N = T.n,
+    L = T.km * 1000,
+    cell = L / (N - 1);
+  const C = meshDir(S.lat, S.lon),
+    { E, N: Nn } = meshEN(S.lat, S.lon),
+    Rb = b.R * 1000;
+  const elev = b64(T.elev.data, Uint16Array),
+    cover = T.cover ? b64(T.cover.data, Uint8Array) : null;
+  // the level the sphere's cap sits at here (a runway's elevation lifts it, app/40_missionview.js) and the flat spots:
+  // the pad and the runway, each at its own level, blended into the relief round them
+  const capE =
+    (md.cfg.runway &&
+    RUNWAYS[md.cfg.runway] &&
+    terrainSiteFor(RUNWAYS[md.cfg.runway].lat, RUNWAYS[md.cfg.runway].lon) ===
+      id
+      ? RUNWAYS[md.cfg.runway].elev
+      : 0) * 1000;
+  const toLocal = (lat, lon) => [
+    (lon - S.lon) * 111320 * Math.cos(S.lat * DEG),
+    (lat - S.lat) * 110574,
+  ];
+  const flats = []; // { x, y, r0, r1, level } discs, and strips { x0, y0, x1, y1, w, level }
+  const site = LAUNCH_SITES[md.cfg.site];
+  if (terrainSiteFor(site.lat, site.lon) === id) {
+    const [x, y] = toLocal(site.lat, site.lon);
+    flats.push({ x, y, r0: 170, r1: 650, level: 0.2 });
+  }
+  const rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
+  if (rw && terrainSiteFor(rw.lat, rw.lon) === id) {
+    const [x0, y0] = toLocal(rw.lat, rw.lon),
+      hd = rw.hdg * DEG,
+      l = rw.len * 1000;
+    flats.push({
+      x0,
+      y0,
+      x1: x0 + Math.sin(hd) * l,
+      y1: y0 + Math.cos(hd) * l,
+      w: rw.wid * 500 + 40,
+      w1: rw.wid * 500 + 400,
+      level: capE + 0.2,
+    });
+  }
+  const hAt = (x, y) => {
+    // height above the sphere at a local point, m: the relief (never below the cap) with the flats
+    const fi = (x / L + 0.5) * (N - 1),
+      fj = (y / L + 0.5) * (N - 1),
+      i0 = clamp(Math.floor(fi), 0, N - 2),
+      j0 = clamp(Math.floor(fj), 0, N - 2),
+      tx = clamp(fi - i0, 0, 1),
+      ty = clamp(fj - j0, 0, 1);
+    const z = (i, j) => T.elev.base + elev[j * N + i] / 10;
+    let h =
+      (z(i0, j0) * (1 - tx) + z(i0 + 1, j0) * tx) * (1 - ty) +
+      (z(i0, j0 + 1) * (1 - tx) + z(i0 + 1, j0 + 1) * tx) * ty;
+    h = Math.max(h - capE, 0) + 0.2;
+    for (const f of flats) {
+      let d;
+      if (f.r0 != null)
+        d =
+          Math.hypot(x - f.x, y - f.y) <= f.r0
+            ? 0
+            : (Math.hypot(x - f.x, y - f.y) - f.r0) / (f.r1 - f.r0);
+      else {
+        const dx = f.x1 - f.x0,
+          dy = f.y1 - f.y0,
+          ll = dx * dx + dy * dy,
+          t = clamp(((x - f.x0) * dx + (y - f.y0) * dy) / ll, 0, 1),
+          dd = Math.hypot(x - f.x0 - dx * t, y - f.y0 - dy * t);
+        d = dd <= f.w ? 0 : (dd - f.w) / (f.w1 - f.w);
+      }
+      if (d < 1) h = (f.level - capE) * (1 - smoothstep(d)) + h * smoothstep(d);
+    }
+    return h;
+  };
+  const at = (x, y, h) =>
+    vscale(
+      vunit(vadd(vscale(C, Rb), vadd(vscale(E, x), vscale(Nn, y)))),
+      Rb + capE + h,
+    );
+  const Pc = at(0, 0, 0),
+    grp = new THREE.Group();
+  // the rim: the ground and the water fade out over the outer sixth, and the globe's own map shows through
+  const fadeAt = (x, y) =>
+    1 -
+    smoothstep((Math.max(Math.abs(x), Math.abs(y)) / (L / 2) - 0.84) / 0.15);
+  // --- the ground: the grid, coloured by land cover (a texture of the classes, so the colour runs smoothly between
+  // cells) with the fine scrub texture over it
+  {
+    const pos = new Float32Array(3 * N * N),
+      uv = new Float32Array(2 * N * N),
+      fade = new Float32Array(N * N),
+      idx = [];
+    // the classes' colours pulled toward the globe's own map colour here, so the square's ground is the same country as
+    // the land round it (the Mojave pale, Florida green), the classes giving the detail
+    const G = globeColorAt(S.lat, S.lon),
+      cc = {};
+    for (const k in TER_COVER) {
+      const c = new THREE.Color(TER_COVER[k][0]);
+      if (G) c.lerp(G, 0.35);
+      cc[k] = c.convertLinearToSRGB();
+    }
+    const water = new THREE.Color(TER_WATER.sea).convertLinearToSRGB();
+    const hash = (i, j) => {
+      const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const tex = new Uint8Array(3 * N * N);
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const x = (i / (N - 1) - 0.5) * L,
+          y = (j / (N - 1) - 0.5) * L,
+          h = hAt(x, y),
+          p = at(x, y, h),
+          o = j * N + i;
+        pos[3 * o] = p[0] - Pc[0];
+        pos[3 * o + 1] = p[1] - Pc[1];
+        pos[3 * o + 2] = p[2] - Pc[2];
+        uv[2 * o] = i / (N - 1);
+        uv[2 * o + 1] = j / (N - 1);
+        fade[o] = fadeAt(x, y);
+        const k = cover ? cover[o] : 0,
+          c = k === 11 ? water : cc[k] || cc[0],
+          v = 0.92 + 0.16 * hash(i, j);
+        tex[3 * o] = Math.min(255, c.r * 255 * v);
+        tex[3 * o + 1] = Math.min(255, c.g * 255 * v);
+        tex[3 * o + 2] = Math.min(255, c.b * 255 * v); // (the colours are kept in sRGB below)
+      }
+    for (let pass = 0; pass < 2; pass++) {
+      // the cells' colours blurred a little, so the classes' edges do not show as a mosaic
+      const src = tex.slice();
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++)
+          for (let ch = 0; ch < 3; ch++) {
+            let a = 0,
+              n = 0;
+            for (let dj = -1; dj <= 1; dj++)
+              for (let di = -1; di <= 1; di++) {
+                const ii = i + di,
+                  jj = j + dj;
+                if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+                a += src[3 * (jj * N + ii) + ch];
+                n++;
+              }
+            tex[3 * (j * N + i) + ch] = a / n;
+          }
+    }
+    for (let j = 0; j < N - 1; j++)
+      for (let i = 0; i < N - 1; i++) {
+        const a = j * N + i,
+          bq = a + 1,
+          c = a + N,
+          d = c + 1;
+        idx.push(a, bq, c, bq, d, c);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    g.setAttribute("aFade", new THREE.BufferAttribute(fade, 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const mesh = new THREE.Mesh(
+      g,
+      terrainMat({ map: terrainClassTexture(tex, N), rep: L / 80 }),
+    );
+    mesh.renderOrder = 1;
+    grp.add(mesh);
+  }
+  // --- water: each polygon flat at its level (the sea at the datum, a lake at the ground's lowest point along its
+  // shore), cut into 1-km tiles so its triangles stay short and follow the sphere
+  {
+    const byKind = {},
+      TILE = 1000;
+    const addShape = (outer, holes, level, kind) => {
+      const sh = new THREE.Shape(
+        outer.map(([x, y]) => new THREE.Vector2(x, y)),
+      );
+      for (const hh of holes)
+        sh.holes.push(
+          new THREE.Path(hh.map(([x, y]) => new THREE.Vector2(x, y))),
+        );
+      let g;
+      try {
+        g = new THREE.ShapeGeometry(sh, 1);
+      } catch (e) {
+        return;
+      }
+      const p = g.attributes.position,
+        arr = new Float32Array(p.count * 3),
+        fd = new Float32Array(p.count);
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i),
+          y = p.getY(i),
+          q = at(x, y, level);
+        arr[3 * i] = q[0] - Pc[0];
+        arr[3 * i + 1] = q[1] - Pc[1];
+        arr[3 * i + 2] = q[2] - Pc[2];
+        fd[i] = fadeAt(x, y);
+      }
+      g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      g.setAttribute("aFade", new THREE.BufferAttribute(fd, 1));
+      g.deleteAttribute("uv");
+      g.deleteAttribute("normal");
+      (byKind[kind] || (byKind[kind] = [])).push(g);
+    };
+    const inRing = (p, o) => {
+      let inside = false;
+      for (let i = 0, j = o.length - 1; i < o.length; j = i++) {
+        const a = o[i],
+          c = o[j];
+        if (
+          a[1] > p[1] !== c[1] > p[1] &&
+          p[0] < ((c[0] - a[0]) * (p[1] - a[1])) / (c[1] - a[1]) + a[0]
+        )
+          inside = !inside;
+      }
+      return inside;
+    };
+    const clipTo = (ring, x0, y0, x1, y1) => {
+      // Sutherland–Hodgman against a tile
+      let P = ring;
+      for (const [ax, lim, keepBelow] of [
+        [0, x1, true],
+        [0, x0, false],
+        [1, y1, true],
+        [1, y0, false],
+      ]) {
+        const inside = (p) => (keepBelow ? p[ax] <= lim : p[ax] >= lim),
+          Q = [];
+        for (let i = 0; i < P.length; i++) {
+          const a = P[i],
+            b = P[(i + 1) % P.length],
+            ia = inside(a),
+            ib = inside(b);
+          const cr = () => {
+            const t = (lim - a[ax]) / (b[ax] - a[ax]);
+            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+          };
+          if (ia) {
+            Q.push(a);
+            if (!ib) Q.push(cr());
+          } else if (ib) Q.push(cr());
+        }
+        P = Q;
+        if (P.length < 3) return [];
+      }
+      return P;
+    };
+    const area2 = (r) => {
+      let a = 0;
+      for (let i = 0; i < r.length; i++) {
+        const [x0, y0] = r[i],
+          [x1, y1] = r[(i + 1) % r.length];
+        a += x0 * y1 - x1 * y0;
+      }
+      return a;
+    };
+    for (const w of T.polys || []) {
+      let level;
+      if (w.kind === "sea" || w.kind === "bay" || w.kind === "estuary")
+        level = 0.45 - capE; // the datum
+      else {
+        level = Infinity;
+        for (const r of w.rings)
+          for (
+            let i = 0;
+            i < r.length;
+            i += Math.max(1, Math.floor(r.length / 40))
+          )
+            level = Math.min(level, hAt(r[i][0], r[i][1]));
+        level += 0.3;
+      }
+      level = Math.max(level, 0.3);
+      // esri rings: clockwise outers (negative signed area here, y up), counter-clockwise holes; each outer takes the holes inside it
+      const outers = [],
+        holes = [];
+      for (const r of w.rings) (area2(r) < 0 ? outers : holes).push(r);
+      if (!outers.length && holes.length)
+        outers.push(holes.shift().slice().reverse());
+      for (const o of outers) {
+        const myHoles = holes.filter((hh) => inRing(hh[0], o));
+        let bx0 = Infinity,
+          by0 = Infinity,
+          bx1 = -Infinity,
+          by1 = -Infinity;
+        for (const [x, y] of o) {
+          if (x < bx0) bx0 = x;
+          if (x > bx1) bx1 = x;
+          if (y < by0) by0 = y;
+          if (y > by1) by1 = y;
+        }
+        for (let ty = Math.floor(by0 / TILE) * TILE; ty < by1; ty += TILE)
+          for (let tx = Math.floor(bx0 / TILE) * TILE; tx < bx1; tx += TILE) {
+            const co = clipTo(o, tx, ty, tx + TILE, ty + TILE);
+            if (co.length < 3) continue;
+            const ch = myHoles
+              .map((hh) => clipTo(hh, tx, ty, tx + TILE, ty + TILE))
+              .filter((r) => r.length >= 3);
+            // a hole that covers the whole tile leaves nothing; one that covers the clipped outer exactly, the same
+            if (ch.some((r) => Math.abs(area2(r)) >= Math.abs(area2(co)) - 1))
+              continue;
+            addShape(co, ch, level, w.kind);
+          }
+      }
+    }
+    for (const [kind, gs] of Object.entries(byKind)) {
+      const g = mergeGeos(gs),
+        playa = kind === "playa";
+      const mesh = new THREE.Mesh(
+        g,
+        terrainMat({
+          color: TER_WATER[kind] || TER_WATER.water,
+          ocean: playa ? 0 : 1,
+          offset: -1,
+        }),
+      );
+      mesh.renderOrder = 2;
+      grp.add(mesh);
+    }
+  }
+  // --- streams and roads: strips laid on the ground
+  const strips = (lines, w, lift) => {
+    const pos = [],
+      idx = [],
+      fd = [];
+    let n = 0;
+    for (const line of lines)
+      for (let i = 0; i < line.length - 1; i++) {
+        const [x0, y0] = line[i],
+          [x1, y1] = line[i + 1],
+          dx = x1 - x0,
+          dy = y1 - y0,
+          ll = Math.hypot(dx, dy) || 1,
+          nx = ((-dy / ll) * w) / 2,
+          ny = ((dx / ll) * w) / 2;
+        const seg = Math.max(1, Math.ceil(ll / 150)); // long segments follow the relief in pieces
+        for (let s = 0; s <= seg; s++) {
+          const x = x0 + (dx * s) / seg,
+            y = y0 + (dy * s) / seg,
+            h = hAt(x, y) + lift;
+          for (const k of [-1, 1]) {
+            const p = at(x + nx * k, y + ny * k, h);
+            pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+            fd.push(fadeAt(x, y));
+          }
+          if (s) {
+            const a = n - 2;
+            idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+          }
+          n += 2;
+        }
+      }
+    if (!n) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aFade", new THREE.Float32BufferAttribute(fd, 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+  const addStrips = (g, color, rough, order) => {
+    if (!g) return;
+    const mesh = new THREE.Mesh(g, terrainMat({ color, offset: -2 }));
+    mesh.renderOrder = order;
+    grp.add(mesh);
+  };
+  addStrips(
+    strips(
+      (T.streams || [])
+        .filter((s) => s.kind === "stream")
+        .flatMap((s) => s.paths),
+      4,
+      0.08,
+    ),
+    TER_WATER.river,
+    0.3,
+    2,
+  );
+  addStrips(
+    strips(
+      (T.streams || [])
+        .filter((s) => s.kind === "canal")
+        .flatMap((s) => s.paths),
+      5,
+      0.08,
+    ),
+    TER_WATER.river,
+    0.3,
+    2,
+  );
+  for (const cls of ["local", "secondary", "primary"]) {
+    const [w, c] = TER_ROAD[cls];
+    addStrips(
+      strips(
+        (T.roads || []).filter((r) => r.cls === cls).flatMap((r) => r.paths),
+        w,
+        0.25,
+      ),
+      c,
+      0.9,
+      3,
+    );
+  }
+  // --- place it: metres → the mesh frame (unit sphere scaled by R)
+  const k = 1 / Rb;
+  grp.position.set(Pc[0] * k, Pc[1] * k, Pc[2] * k);
+  grp.scale.setScalar(k);
+  grp.userData = { id, hAt, toLocal, at, Pc, capE, L };
+  b.mesh.add(grp);
+  TER.groups.push(grp);
+  if (MV.pad)
+    MV.pad.traverse((n) => {
+      if (n.userData.padGround) n.visible = false;
+    }); // the pad's scrub, beach and roads give way
+  if (typeof buildBuildings === "function") buildBuildings(id, grp, T, md);
+  // every mesh: the sphere's up at each vertex (for the lighting) and the fade toward the rim, from the positions
+  grp.traverse((n) => {
+    if (!n.isMesh) return;
+    const g = n.geometry,
+      p = g.attributes.position,
+      up = new Float32Array(p.count * 3),
+      fd = new Float32Array(p.count);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) + Pc[0],
+        y = p.getY(i) + Pc[1],
+        z = p.getZ(i) + Pc[2],
+        r = Math.hypot(x, y, z);
+      up[3 * i] = x / r;
+      up[3 * i + 1] = y / r;
+      up[3 * i + 2] = z / r;
+      const dx = p.getX(i),
+        dy = p.getY(i),
+        dz = p.getZ(i);
+      fd[i] = fadeAt(
+        dx * E[0] + dy * E[1] + dz * E[2],
+        dx * Nn[0] + dy * Nn[1] + dz * Nn[2],
+      );
+    }
+    g.setAttribute("aUp", new THREE.BufferAttribute(up, 3));
+    g.setAttribute("aFade", new THREE.BufferAttribute(fd, 1));
+  });
+}
+// The terrain's material: lit as the globe is (the Sun through the air and the sky's light from the atmosphere model,
+// app/15_atmos.js and app/20_scene.js) and seen through the same air, so the square is the same country as the globe
+// round it, whatever the hour. alb: a texture (the land-cover colours) or a colour or the vertex colours, with the scrub
+// texture over it at rep repeats across the square; ocean: the sea's glint and sky reflection; the fade toward the rim
+// in aFade. Positions are in the planet's mesh frame (the group draped on the sphere), aUp the sphere's normal.
+const GLSL_TERRAIN_V = `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec3 aUp; attribute float aFade; varying vec2 vUv; varying vec3 vN; varying vec3 vP; varying vec3 vUp; varying float vFade; varying vec3 vCol;
+uniform float uWave; uniform float uTime;
+#ifdef USE_VC
+attribute vec3 color;
+#endif
+void main() {
+  vUv = uv; vFade = aFade; vUp = normalize(mat3(modelMatrix) * aUp); vN = normalize(mat3(modelMatrix) * normal);
+  #ifdef USE_VC
+  vCol = color;
+  #else
+  vCol = vec3(1.0);
+  #endif
+  vec3 pos = position;
+  if (uWave > 0.0) pos += normal * (sin(uv.x * 9.0 - uTime * 5.0) + 0.5 * sin(uv.x * 17.0 + uv.y * 4.0 - uTime * 8.3)) * uv.x * uWave; // a flag in the wind: waves run out from the pole and grow toward the fly
+  vec4 wp = modelMatrix * vec4(pos, 1.0); vP = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+  #include <logdepthbuf_vertex>
+}`;
+const GLSL_TERRAIN_F = `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform sampler2D tMap; uniform float uHasMap; uniform vec3 uColor; uniform sampler2D tScrub; uniform float uRep; uniform float uOcean; uniform vec3 uSunDir; uniform vec3 uFill;
+varying vec2 vUv; varying vec3 vN; varying vec3 vP; varying vec3 vUp; varying float vFade; varying vec3 vCol;
+${GLSL_ATMOS}
+void main() {
+  ${LOGDEPTH_EXACT}
+  vec3 N = normalize(vUp), Nb = normalize(vN), L = normalize(uSunDir);
+  if (!gl_FrontFacing) Nb = -Nb;
+  vec3 seg = vP - cameraPosition; float dist = length(seg); vec3 d = seg / dist, V = -d;
+  float mus = dot(N, L), muv = max(dot(N, V), 0.0);
+  vec3 sun = aSunlight(aRg, mus) * (aSunE / PI), sky = aSkyLight(aRg, mus);
+  vec3 alb = (uHasMap > 0.5 ? texture2D(tMap, vUv).rgb : uColor) * vCol;
+  if (uRep > 0.0) { // the scrub texture at four scales (1.1 km, 350 m, 80 m, 20 m tiles): patches of brush, bare ground and washes
+    vec2 suv = vUv * uRep; float sA = texture2D(tScrub, suv * 0.071 + vec2(0.37, 0.11)).g, sB = texture2D(tScrub, suv * 0.23 + vec2(0.71, 0.53)).g, sC = texture2D(tScrub, suv).g, sD = texture2D(tScrub, suv * 4.0 + vec2(0.13, 0.61)).g;
+    alb *= 0.45 + 1.0 * (0.35 * sA + 0.3 * sB + 0.25 * sC + 0.1 * sD) / 0.22 * 0.55; }
+  vec3 col = alb * (sun * max(dot(Nb, L), 0.0) + sky);
+  if (uOcean > 0.0) { // the water: glint off its ruffled surface and the sky's reflection (as the globe's sea)
+    vec3 H = normalize(L + V); float nh = max(dot(N, H), 1e-3), vh = max(dot(V, H), 0.0);
+    const float S2 = 0.035;
+    float D = exp(-(1.0 - nh * nh) / (nh * nh * S2)) / (PI * S2 * nh * nh * nh * nh);
+    float F = 0.02 + 0.98 * pow(1.0 - vh, 5.0), Fv = 0.02 + 0.98 * pow(1.0 - muv, 5.0);
+    vec3 sea = col * (1.0 - Fv) + sun * PI * F * D / (4.0 * max(muv, 0.05)) + sky * Fv;
+    col = mix(col, sea, uOcean);
+  }
+  col += alb * uFill * (1.0 - smoothstep(-0.10, 0.12, mus)); // the same night fill as the globe's
+  float t0 = 0.0; // the air between the camera and this point
+  if (aCamH > aRt - aRg) { float b = dot(aCam, d); vec3 pc = aCam - b * d; float Dt = aRt * aRt - dot(pc, pc); t0 = Dt > 0.0 ? clamp(-b - sqrt(Dt), 0.0, dist) : dist; }
+  vec3 S, T; aIntegrate(aCam, d, t0, dist, L, 2, aCamH > aRt - aRg ? 12 : 16, S, T);
+  col = col * T * aWB * aExpo + aHaze(S, dist);
+  gl_FragColor = vec4(col, vFade);
+  #include <colorspace_fragment>
+}`;
+// the ground's height at a point, km above the sphere (the relief, the flats, and the cap it is cut from), or null where
+// no terrain is loaded: for whatever must stand on the ground, like the launch camera (app/50_camera.js)
+function terrainHeightAt(lat, lon) {
+  for (const g of TER.groups) {
+    const ud = g.userData;
+    if (!ud.hAt) continue;
+    const [x, y] = ud.toLocal(lat, lon);
+    if (Math.abs(x) > ud.L * 0.5 || Math.abs(y) > ud.L * 0.5) continue;
+    return (ud.capE + ud.hAt(x, y)) / 1000;
+  }
+  return null;
+}
+function terrainMat(o) {
+  const EU = R.bodies.earth.mat.uniforms,
+    scrub = padGroundTex();
+  scrub.wrapS = scrub.wrapT = THREE.RepeatWrapping;
+  const m = new THREE.ShaderMaterial({
+    vertexShader: GLSL_TERRAIN_V,
+    fragmentShader: GLSL_TERRAIN_F,
+    transparent: true,
+    side: o.map ? THREE.DoubleSide : THREE.FrontSide,
+    polygonOffset: !!o.offset,
+    polygonOffsetFactor: o.offset || 0,
+    polygonOffsetUnits: o.offset || 0,
+    defines: o.vertexColors ? { USE_VC: 1 } : {},
+    uniforms: Object.assign(
+      {
+        tMap: { value: o.map || null },
+        uHasMap: { value: o.map ? 1 : 0 },
+        uColor: { value: new THREE.Color(o.color || "#ffffff") },
+        tScrub: { value: scrub },
+        uRep: { value: o.rep || 0 },
+        uOcean: { value: o.ocean || 0 },
+        uWave: { value: o.wave || 0 },
+        uTime: { value: 0 },
+        uSunDir: EU.uSunDir,
+        uFill: EU.uFill,
+      },
+      atmosUniforms("earth"),
+    ),
+  });
+  if (o.wave) TER.anim.push(m);
+  return m;
+}
+function updateTerrain() {
+  const t = clockMs() / 1000;
+  for (const m of TER.anim) m.uniforms.uTime.value = t;
+} // the flags
+// the Earth map's colour at a point (sRGB), from the 4k day map: a few pixels round it averaged
+function globeColorAt(lat, lon) {
+  const e = (R.texLOD || []).find(
+      (x) => x.body === "earth" && x.srgb && !x.grey,
+    ),
+    im = e && e.base && e.base.image;
+  if (!im || !im.width) return null;
+  try {
+    const c =
+      globeColorAt.c || (globeColorAt.c = document.createElement("canvas"));
+    c.width = 4;
+    c.height = 4;
+    const g = c.getContext("2d");
+    const x = ((lon + 180) / 360) * im.width - 2,
+      y = ((90 - lat) / 180) * im.height - 2;
+    g.drawImage(im, x, y, 4, 4, 0, 0, 4, 4);
+    const d = g.getImageData(0, 0, 4, 4).data;
+    let r = 0,
+      gg = 0,
+      b = 0;
+    for (let i = 0; i < 16; i++) {
+      r += d[4 * i];
+      gg += d[4 * i + 1];
+      b += d[4 * i + 2];
+    }
+    return new THREE.Color().setRGB(
+      r / 16 / 255,
+      gg / 16 / 255,
+      b / 16 / 255,
+      THREE.SRGBColorSpace,
+    );
+  } catch (e) {
+    return null;
+  }
+}
+// the land-cover colours as a texture over the square, sampled smoothly between cells
+function terrainClassTexture(rgb, N) {
+  const px = new Uint8Array(4 * N * N);
+  for (let i = 0; i < N * N; i++) {
+    px[4 * i] = rgb[3 * i];
+    px[4 * i + 1] = rgb[3 * i + 1];
+    px[4 * i + 2] = rgb[3 * i + 2];
+    px[4 * i + 3] = 255;
+  }
+  const t = new THREE.DataTexture(px, N, N, THREE.RGBAFormat);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+function mergeGeos(gs) {
+  // positions and the fade (nothing else shared), for the water
+  const pos = [],
+    fd = [],
+    idx = [];
+  let n = 0;
+  for (const g of gs) {
+    const p = g.attributes.position,
+      f = g.attributes.aFade,
+      ix = g.index;
+    for (let i = 0; i < p.count; i++) {
+      pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      fd.push(f ? f.getX(i) : 1);
+    }
+    if (ix) for (let i = 0; i < ix.count; i++) idx.push(ix.getX(i) + n);
+    else for (let i = 0; i < p.count; i++) idx.push(i + n);
+    n += p.count;
+    g.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("aFade", new THREE.Float32BufferAttribute(fd, 1));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// ==== 44_buildings.js
+// ============================================================================
+// What no public-domain dataset holds: the buildings, the crawlerway, the other pads and the runways of a site, drawn by
+// hand on the terrain (app/43_terrain.js) from published dimensions. Positions are read off public maps and are good to
+// some tens of metres; the buildings are plain blocks in their colours. Only the main ones: what a camera a few
+// kilometres off would pick out.
+// Each entry: lat, lon of the centre, w (east–west) × d (north–south) × h metres, hdg: rotation clockwise from north,
+// col: the walls, roof: the roof.
+// ============================================================================
+const SITE_FEATURES = {
+  ksc: {
+    buildings: [
+      // the VAB: the high bays (the four doors on the east and west faces; the flag on the south face) and, on its south
+      // side, the low bay, 64 m
+      {
+        name: "Vehicle Assembly Building",
+        lat: 28.58617,
+        lon: -80.6512,
+        w: 158,
+        d: 158,
+        h: 160,
+        col: "#dddbd4",
+        roof: "#9a9893",
+        vab: true,
+        style: "vab",
+      },
+      {
+        name: "VAB low bay",
+        lat: 28.5852,
+        lon: -80.6512,
+        w: 158,
+        d: 60,
+        h: 64,
+        col: "#dddbd4",
+        roof: "#9a9893",
+        style: "vabLow",
+      },
+      {
+        name: "Launch Control Center",
+        lat: 28.5852,
+        lon: -80.6489,
+        w: 60,
+        d: 115,
+        h: 24,
+        col: "#c9c6bd",
+        roof: "#8d8b86",
+        style: "office",
+      },
+      {
+        name: "Countdown clock",
+        lat: 28.583,
+        lon: -80.644,
+        w: 8,
+        d: 1.2,
+        h: 2.4,
+        col: "#1d1f22",
+        roof: "#1d1f22",
+        style: "clock",
+        hdg: 20,
+      }, // at the press site, on the edge of the turn basin
+      {
+        name: "Orbiter Processing Facility 1 and 2",
+        lat: 28.5878,
+        lon: -80.6548,
+        w: 120,
+        d: 60,
+        h: 29,
+        col: "#cfcdc5",
+        roof: "#8d8b86",
+        style: "hangar",
+        door: 2,
+      },
+      {
+        name: "Orbiter Processing Facility 3",
+        lat: 28.5904,
+        lon: -80.6541,
+        w: 70,
+        d: 60,
+        h: 29,
+        col: "#cfcdc5",
+        roof: "#8d8b86",
+        style: "hangar",
+        door: 2,
+      },
+      {
+        name: "Rotation, Processing and Surge Facility",
+        lat: 28.5947,
+        lon: -80.645,
+        w: 60,
+        d: 110,
+        h: 30,
+        col: "#c9c6bd",
+        roof: "#8d8b86",
+        style: "hangar",
+        door: 1,
+      },
+    ],
+    // flagpoles with the flag flying: at the press site beside the countdown clock, in front of the Launch Control
+    // Center, and at the pads' perimeters
+    flags: [
+      { lat: 28.58305, lon: -80.64385, h: 30, w: 9, d: 5.8 },
+      { lat: 28.5847, lon: -80.6484, h: 15, w: 4.5, d: 2.9 },
+      { lat: 28.5847, lon: -80.6486, h: 15, w: 4.5, d: 2.9 },
+      { lat: 28.5847, lon: -80.6488, h: 15, w: 4.5, d: 2.9 },
+      { lat: 28.6055, lon: -80.602, h: 12, w: 3.6, d: 2.3 },
+      { lat: 28.6245, lon: -80.619, h: 12, w: 3.6, d: 2.3 },
+    ],
+    // the crawlerway: two 12-m lanes of river rock 15 m apart, from the VAB's transfer aisle east, then north-east to the
+    // fork, and on to each pad's ramp (the route is approximate)
+    crawlerway: [
+      [28.5862, -80.6487],
+      [28.588, -80.63],
+      [28.601, -80.6195],
+      [28.6045, -80.611],
+      [28.6083, -80.6043],
+    ],
+    crawlerwayB: [
+      [28.601, -80.6195],
+      [28.616, -80.622],
+      [28.6272, -80.6209],
+    ],
+    // the other pad (whichever the mission is not on): its mound with the hardstand on top
+    pads: [
+      { site: "KSC39A", lat: 28.6084, lon: -80.6043 },
+      { site: "KSC39B", lat: 28.6272, lon: -80.6209 },
+    ],
+    // the Shuttle Landing Facility, when the mission does not land on it (then app/42_shuttleview.js draws it)
+    runways: [
+      {
+        key: "KSC15",
+        lat: 28.632753,
+        lon: -80.706062,
+        hdg: 150,
+        len: 4572,
+        wid: 91,
+      },
+    ],
+  },
+  starbase: {
+    flags: [
+      { lat: 25.9968, lon: -97.1575, h: 12, w: 3.6, d: 2.3 },
+      { lat: 25.9884, lon: -97.1838, h: 15, w: 4.5, d: 2.9 },
+    ],
+    buildings: [
+      // the production site 2.5 km west along Highway 4 (approximate)
+      {
+        name: "High Bay",
+        lat: 25.988,
+        lon: -97.1855,
+        w: 28,
+        d: 28,
+        h: 81,
+        col: "#c8ccd0",
+        roof: "#8a8e92",
+        style: "steel",
+        text: "STARBASE",
+      },
+      {
+        name: "Mega Bay",
+        lat: 25.9872,
+        lon: -97.1868,
+        w: 30,
+        d: 30,
+        h: 81,
+        col: "#c8ccd0",
+        roof: "#8a8e92",
+        style: "steel",
+      },
+      {
+        name: "Starfactory",
+        lat: 25.989,
+        lon: -97.189,
+        w: 300,
+        d: 110,
+        h: 20,
+        col: "#d8dadc",
+        roof: "#b0b3b6",
+        style: "factory",
+        text: "STARFACTORY",
+      },
+      {
+        name: "Mid Bay",
+        lat: 25.9862,
+        lon: -97.185,
+        w: 24,
+        d: 24,
+        h: 50,
+        col: "#c8ccd0",
+        roof: "#8a8e92",
+        style: "steel",
+      },
+    ],
+  },
+  edwards: {
+    buildings: [
+      // the main base's flightline hangars, and NASA Armstrong's to the north (approximate)
+      {
+        name: "Hangar",
+        lat: 34.904,
+        lon: -117.883,
+        w: 90,
+        d: 60,
+        h: 26,
+        col: "#c9c4b4",
+        roof: "#9b9789",
+        style: "hangar",
+        door: 0,
+      },
+      {
+        name: "Hangar",
+        lat: 34.9052,
+        lon: -117.881,
+        w: 90,
+        d: 60,
+        h: 26,
+        col: "#c9c4b4",
+        roof: "#9b9789",
+        style: "hangar",
+        door: 0,
+      },
+      {
+        name: "Hangar",
+        lat: 34.9064,
+        lon: -117.879,
+        w: 90,
+        d: 60,
+        h: 26,
+        col: "#c9c4b4",
+        roof: "#9b9789",
+        style: "hangar",
+        door: 0,
+      },
+      {
+        name: "Hangar",
+        lat: 34.9076,
+        lon: -117.877,
+        w: 90,
+        d: 60,
+        h: 26,
+        col: "#c9c4b4",
+        roof: "#9b9789",
+        style: "hangar",
+        door: 0,
+      },
+      {
+        name: "NASA Armstrong hangar 4802",
+        lat: 34.954,
+        lon: -117.886,
+        w: 100,
+        d: 70,
+        h: 24,
+        col: "#d3cfc2",
+        roof: "#a19d90",
+        style: "hangar",
+        door: 0,
+      },
+      {
+        name: "NASA Armstrong",
+        lat: 34.953,
+        lon: -117.884,
+        w: 60,
+        d: 60,
+        h: 18,
+        col: "#d3cfc2",
+        roof: "#a19d90",
+        style: "office",
+      },
+    ],
+  },
+};
+// The facade of a block, drawn once per building: a canvas of five bands, the roof on top and then the four walls (south,
+// east, north, west), each drawn in metres. The styles: 'vab' (the panelled walls, the high-bay doors on the east and west
+// faces, the flag on the south), 'office' (rows of windows), 'hangar' (a door across the front), 'steel' (corrugated
+// sheet), 'factory' (a long shed with skylights); plain panels otherwise. Grime at the foot of every wall, equipment on
+// every roof.
+let bldSeed = 3;
+const bldRnd = () => (bldSeed = (bldSeed * 9301 + 49297) % 233280) / 233280;
+function facadeTex(B) {
+  const W = 1024,
+    Hb = 256,
+    c = document.createElement("canvas");
+  c.width = W;
+  c.height = 5 * Hb;
+  const g = c.getContext("2d");
+  const wall = new THREE.Color(B.col),
+    roof = new THREE.Color(B.roof || B.col),
+    hex = (k) => "#" + k.getHexString();
+  const shade = (k, f) => hex(k.clone().multiplyScalar(f));
+  bldSeed = Math.round((B.lat * 1000 + B.lon * 1000) % 1000) + 3;
+  // the roof: its colour, a parapet line, and boxes (air handlers, vents, a hut) scattered over it
+  g.fillStyle = hex(roof);
+  g.fillRect(0, 0, W, Hb);
+  g.save();
+  g.scale(W / B.w, Hb / B.d);
+  g.fillStyle = shade(roof, 0.8);
+  for (let k = 0; k < 2 + Math.round((B.w * B.d) / 1500); k++) {
+    const w = 2 + bldRnd() * 4,
+      d = 2 + bldRnd() * 4;
+    g.fillRect(
+      1 + bldRnd() * (B.w - 2 - w),
+      1 + bldRnd() * (B.d - 2 - d),
+      w,
+      d,
+    );
+  }
+  if (B.style === "factory") {
+    g.fillStyle = shade(roof, 1.25);
+    for (let x = 4; x < B.w - 4; x += 8) g.fillRect(x, 2, 1.2, B.d - 4);
+  }
+  g.restore();
+  g.strokeStyle = shade(roof, 0.7);
+  g.lineWidth = 3;
+  g.strokeRect(1, 1, W - 2, Hb - 2);
+  for (let i = 0; i < 4; i++) {
+    const wm = i % 2 ? B.d : B.w,
+      hm = B.h; // the face's width and height in metres
+    g.save();
+    g.translate(0, Hb * (1 + i));
+    g.scale(W / wm, Hb / hm); // metres, y down from the top of the wall
+    g.fillStyle = hex(wall);
+    g.fillRect(0, 0, wm, hm);
+    const pw = B.style === "steel" ? 1.0 : B.style === "vab" ? 7.0 : 6.0; // the panels
+    g.fillStyle = "rgba(0,0,0,0.10)";
+    for (let x = pw; x < wm; x += pw)
+      g.fillRect(x, 0, Math.max(0.12, (wm / W) * 2), hm);
+    if (B.style === "office") {
+      g.fillStyle = "#2d3238";
+      for (let y = 1.2; y < hm - 2; y += 3.6)
+        for (let x = 1.5; x < wm - 1.5; x += 3.0) g.fillRect(x, y, 1.8, 1.6);
+    } // rows of windows
+    if (B.style === "vab" || B.style === "vabLow") {
+      // the aluminium panels: a darker rib at every column
+      g.fillStyle = "rgba(70,72,76,0.22)";
+      for (let x = 3.5; x < wm; x += 7) g.fillRect(x, 0, 1.2, hm);
+      g.fillStyle = "rgba(0,0,0,0.06)";
+      for (let y = 11; y < hm; y += 11) g.fillRect(0, y, wm, 0.25);
+    }
+    if (B.style === "vab") {
+      // the high-bay doors on the east and west faces: T-shaped, 139 m tall, the lower 35 m of four sliding leaves 35 m
+      // wide, the upper part seven folding panels 23 m wide
+      if (i % 2)
+        for (const f of [0.25, 0.75]) {
+          const xc = f * wm;
+          g.fillStyle = "#5c5e62";
+          g.fillRect(xc - 11.5, hm - 139, 23, 104);
+          g.fillStyle = "rgba(255,255,255,0.14)";
+          for (let k = 1; k < 7; k++)
+            g.fillRect(xc - 11.5 + (k * 23) / 7, hm - 139, 0.5, 104);
+          g.fillStyle = "#44464a";
+          g.fillRect(xc - 17.5, hm - 35, 35, 35);
+          g.fillStyle = "rgba(255,255,255,0.14)";
+          for (let k = 1; k < 4; k++)
+            g.fillRect(xc - 17.5, hm - 35 + k * 8.75, 35, 0.5);
+        }
+      if (i === 0) {
+        const fx = 14,
+          fy = 20,
+          fw = 33.5,
+          fh = 63.7;
+        g.fillStyle = "#b22234";
+        g.fillRect(fx, fy, fw, fh);
+        g.fillStyle = "#ffffff";
+        for (let k = 1; k < 13; k += 2)
+          g.fillRect(fx, fy + (k * fh) / 13, fw, fh / 13);
+        g.fillStyle = "#3c3b6e";
+        g.fillRect(fx, fy, fw * 0.4, (fh * 7) / 13);
+        g.fillStyle = "#ffffff";
+        for (let r = 0; r < 9; r++)
+          for (let c = 0; c < (r % 2 ? 5 : 6); c++) {
+            g.beginPath();
+            g.arc(
+              fx + (r % 2 ? 2.2 : 1.1) + c * 2.2 + 0.1,
+              fy + 1.9 + r * 3.66,
+              0.8,
+              0,
+              TAU,
+            );
+            g.fill();
+          }
+      } // the flag: 209 ft by 110 ft, with its fifty stars
+    }
+    if (B.style === "clock") {
+      g.fillStyle = "#0b0b0d";
+      g.fillRect(0.3, 0.3, wm - 0.6, hm - 0.9);
+      if (i === 0) {
+        g.fillStyle = "#ff3b2f";
+        g.font = `bold ${hm * 0.55}px monospace`;
+        g.textBaseline = "middle";
+        g.textAlign = "center";
+        g.fillText("-00:00:00", wm / 2, hm * 0.5);
+      }
+    } // the countdown clock's face
+    if (B.text && i === (B.textFace ?? 0)) {
+      g.fillStyle = "#2f3237";
+      g.font = `bold ${Math.min(hm * 0.18, wm * 0.09)}px Helvetica, Arial, sans-serif`;
+      g.textBaseline = "middle";
+      g.textAlign = "center";
+      g.fillText(B.text, wm / 2, hm * 0.22);
+    } // the name in plain letters
+    if (B.style === "hangar" && i === (B.door ?? 0)) {
+      g.fillStyle = shade(wall, 0.75);
+      g.fillRect(wm * 0.08, hm * 0.18, wm * 0.84, hm * 0.82);
+      g.fillStyle = "rgba(0,0,0,0.15)";
+      for (let x = wm * 0.08; x < wm * 0.92; x += 4)
+        g.fillRect(x, hm * 0.18, 0.2, hm * 0.82);
+    } // the door across the front
+    if (B.style === "factory") {
+      g.fillStyle = "#3a3f45";
+      for (let x = 6; x < wm - 6; x += 24) g.fillRect(x, hm - 7, 7, 7);
+    } // the bay doors along the shed
+    const gr = g.createLinearGradient(0, hm - 3, 0, hm);
+    gr.addColorStop(0, "rgba(60,50,40,0)");
+    gr.addColorStop(1, "rgba(60,50,40,0.45)");
+    g.fillStyle = gr;
+    g.fillRect(0, hm - 3, wm, 3); // grime at the foot
+    const st = g.createLinearGradient(0, 0, 0, hm);
+    st.addColorStop(0, "rgba(0,0,0,0)");
+    st.addColorStop(1, "rgba(0,0,0,0.12)");
+    g.fillStyle = st;
+    g.fillRect(0, 0, wm, hm); // the rain's streaking, darker toward the ground
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+// the flag, for the flagpoles: drawn once (u from the hoist to the fly, v from the bottom)
+function flagTex() {
+  if (flagTex.t) return flagTex.t;
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 270;
+  const g = c.getContext("2d");
+  g.fillStyle = "#b22234";
+  g.fillRect(0, 0, 512, 270);
+  g.fillStyle = "#ffffff";
+  for (let k = 1; k < 13; k += 2) g.fillRect(0, (k * 270) / 13, 512, 270 / 13);
+  g.fillStyle = "#3c3b6e";
+  g.fillRect(0, 0, 205, (270 * 7) / 13);
+  g.fillStyle = "#ffffff";
+  for (let r = 0; r < 9; r++)
+    for (let col = 0; col < (r % 2 ? 5 : 6); col++) {
+      g.beginPath();
+      g.arc((r % 2 ? 34 : 17) + col * 34, 8 + r * 16, 5, 0, TAU);
+      g.fill();
+    }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return (flagTex.t = t);
+}
+function buildBuildings(id, grp, T, md) {
+  const F = SITE_FEATURES[id];
+  if (!F) return;
+  const { hAt, toLocal, at, Pc } = grp.userData;
+  const put = (geo, m, order = 4) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.renderOrder = order;
+    grp.add(mesh);
+    return mesh;
+  };
+  // a block standing on the ground: its corners draped on the sphere, its walls vertical in the local frame; each face
+  // mapped to its band of the building's facade (facadeTex)
+  const block = (B) => {
+    const [cx, cy] = toLocal(B.lat, B.lon),
+      hd = (B.hdg || 0) * DEG,
+      ce = Math.cos(hd),
+      sn = Math.sin(hd);
+    const corner = (u, v) => [cx + u * ce + v * sn, cy - u * sn + v * ce]; // u east, v north before the rotation
+    const base =
+      Math.min(
+        ...[
+          [-1, -1],
+          [1, -1],
+          [1, 1],
+          [-1, 1],
+        ].map(([u, v]) => {
+          const [x, y] = corner((u * B.w) / 2, (v * B.d) / 2);
+          return hAt(x, y);
+        }),
+      ) - 0.5;
+    const pos = [],
+      idx = [],
+      uv = [];
+    const face = (pts, uvs) => {
+      const n0 = pos.length / 3;
+      pts.forEach(([x, y, h], k) => {
+        const p = at(x, y, h);
+        pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+        uv.push(uvs[k][0], uvs[k][1]);
+      });
+      idx.push(n0, n0 + 1, n0 + 2, n0, n0 + 2, n0 + 3);
+    };
+    const C4 = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].map(([u, v]) => corner((u * B.w) / 2, (v * B.d) / 2));
+    face(
+      C4.map(([x, y]) => [x, y, base + B.h]),
+      [
+        [0, 0.8],
+        [1, 0.8],
+        [1, 1],
+        [0, 1],
+      ],
+    ); // the roof: the top band
+    for (let i = 0; i < 4; i++) {
+      const a = C4[i],
+        b = C4[(i + 1) % 4],
+        v0 = 1 - (2 + i) / 5,
+        v1 = 1 - (1 + i) / 5;
+      face(
+        [
+          [a[0], a[1], base],
+          [b[0], b[1], base],
+          [b[0], b[1], base + B.h],
+          [a[0], a[1], base + B.h],
+        ],
+        [
+          [0, v0],
+          [1, v0],
+          [1, v1],
+          [0, v1],
+        ],
+      );
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return put(g, terrainMat({ map: facadeTex(B) }));
+  };
+  for (const B of F.buildings || []) block(B);
+  // the flagpoles: a pole, and the flag as a strip of cloth streaming downwind (the launch's wind, app/47_exhaust.js), waved
+  // by the shader (terrainMat's wave)
+  if (F.flags && F.flags.length) {
+    let seed = 0;
+    for (const ch of md.cfg.launch + md.cfg.site)
+      seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+    const [we, wn] = exhWind(seed)(0.05),
+      wl = Math.hypot(we, wn) || 1,
+      de = we / wl,
+      dn = wn / wl;
+    const fm = terrainMat({ map: flagTex(), wave: 0.35 }),
+      pm = terrainMat({ color: "#d9dbde" });
+    for (const Fl of F.flags) {
+      const [x, y] = toLocal(Fl.lat, Fl.lon),
+        h0 = hAt(x, y),
+        r = 0.12;
+      const pos = [],
+        idx = [],
+        uv = [],
+        n = 8;
+      for (let i = 0; i <= n; i++) {
+        const a = (i * TAU) / n;
+        const p0 = at(x + Math.cos(a) * r, y + Math.sin(a) * r, h0),
+          p1 = at(x + Math.cos(a) * r, y + Math.sin(a) * r, h0 + Fl.h);
+        pos.push(
+          p0[0] - Pc[0],
+          p0[1] - Pc[1],
+          p0[2] - Pc[2],
+          p1[0] - Pc[0],
+          p1[1] - Pc[1],
+          p1[2] - Pc[2],
+        );
+        if (i < n) {
+          const b = 2 * i;
+          idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+        }
+      }
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      pg.setIndex(idx);
+      pg.computeVertexNormals();
+      put(pg, pm);
+      const fp = [],
+        fi = [],
+        fu = [],
+        nx = 12,
+        ny = 6;
+      for (let j = 0; j <= ny; j++)
+        for (let i = 0; i <= nx; i++) {
+          const u = i / nx,
+            v = j / ny;
+          const p = at(
+            x + de * u * Fl.w + r,
+            y + dn * u * Fl.w,
+            h0 + Fl.h - 0.3 - Fl.d * (1 - v),
+          );
+          fp.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+          fu.push(u, v);
+          if (i < nx && j < ny) {
+            const a = j * (nx + 1) + i;
+            fi.push(a, a + 1, a + nx + 1, a + 1, a + nx + 2, a + nx + 1);
+          }
+        }
+      const fg = new THREE.BufferGeometry();
+      fg.setAttribute("position", new THREE.Float32BufferAttribute(fp, 3));
+      fg.setAttribute("uv", new THREE.Float32BufferAttribute(fu, 2));
+      fg.setIndex(fi);
+      fg.computeVertexNormals();
+      put(fg, fm, 5);
+    }
+  }
+  // the crawlerway: two lanes of grey-brown rock
+  const lanes = (route, w, gap, c) => {
+    if (!route) return;
+    const P = route.map(([la, lo]) => toLocal(la, lo)),
+      pos = [],
+      idx = [];
+    let n = 0;
+    for (let i = 0; i < P.length - 1; i++) {
+      const [x0, y0] = P[i],
+        [x1, y1] = P[i + 1],
+        dx = x1 - x0,
+        dy = y1 - y0,
+        ll = Math.hypot(dx, dy) || 1,
+        nx = -dy / ll,
+        ny = dx / ll,
+        seg = Math.max(1, Math.ceil(ll / 120));
+      for (const side of [-1, 1])
+        for (let s = 0; s <= seg; s++) {
+          const x = x0 + (dx * s) / seg,
+            y = y0 + (dy * s) / seg,
+            h = hAt(x, y) + 0.3,
+            off = side * (gap / 2 + w / 2);
+          for (const k of [-1, 1]) {
+            const p = at(
+              x + nx * (off + (k * w) / 2),
+              y + ny * (off + (k * w) / 2),
+              h,
+            );
+            pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+          }
+          if (s) {
+            const a = n - 2;
+            idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+          }
+          n += 2;
+        }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    put(g, terrainMat({ color: c, offset: -2 }), 3);
+  };
+  lanes(F.crawlerway, 12, 15, "#b3aa97");
+  lanes(F.crawlerwayB, 12, 15, "#b3aa97");
+  // the other pads: a mound 13 m high with the hardstand on top (the mission's own pad is the real model, app/46_pads.js)
+  for (const P of F.pads || []) {
+    if (P.site === md.cfg.site) continue;
+    const [cx, cy] = toLocal(P.lat, P.lon),
+      h0 = hAt(cx, cy),
+      pos = [],
+      idx = [],
+      NA = 48,
+      rings = [
+        [0, 12.8],
+        [60, 12.8],
+        [100, 0.5],
+      ];
+    for (const [r, h] of rings)
+      for (let i = 0; i < NA; i++) {
+        const a = (i * TAU) / NA;
+        const p = at(cx + Math.cos(a) * r * 1.1, cy + Math.sin(a) * r, h0 + h);
+        pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+      }
+    for (let k = 0; k < rings.length - 1; k++)
+      for (let i = 0; i < NA; i++) {
+        const a = k * NA + i,
+          b = k * NA + ((i + 1) % NA),
+          c = a + NA,
+          d = b + NA;
+        idx.push(a, b, c, b, d, c);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    put(g, terrainMat({ color: "#6f7c57" }));
+    const top = new THREE.CircleGeometry(1, NA);
+    const tp = top.attributes.position;
+    const arr = new Float32Array(tp.count * 3);
+    for (let i = 0; i < tp.count; i++) {
+      const p = at(cx + tp.getX(i) * 66, cy + tp.getY(i) * 60, h0 + 12.85);
+      arr[3 * i] = p[0] - Pc[0];
+      arr[3 * i + 1] = p[1] - Pc[1];
+      arr[3 * i + 2] = p[2] - Pc[2];
+    }
+    top.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+    top.computeVertexNormals();
+    put(top, terrainMat({ color: "#aeaba3" }));
+  }
+  // runways not drawn by the Shuttle code: a plain concrete strip with a centreline
+  for (const rw of F.runways || []) {
+    if (
+      md.cfg.runway === rw.key ||
+      (md.cfg.runway &&
+        RUNWAYS[md.cfg.runway] &&
+        Math.abs(RUNWAYS[md.cfg.runway].lat - rw.lat) < 0.05 &&
+        Math.abs(RUNWAYS[md.cfg.runway].lon - rw.lon) < 0.05)
+    )
+      continue;
+    const [x0, y0] = toLocal(rw.lat, rw.lon),
+      hd = rw.hdg * DEG,
+      f = [Math.sin(hd), Math.cos(hd)],
+      l = [Math.cos(hd), -Math.sin(hd)],
+      pos = [],
+      idx = [],
+      nL = 48;
+    for (let i = 0; i <= nL; i++) {
+      const x = x0 + (f[0] * rw.len * i) / nL,
+        y = y0 + (f[1] * rw.len * i) / nL,
+        h = hAt(x, y) + 0.35;
+      for (const j of [-1, 1]) {
+        const p = at(
+          x + (l[0] * j * rw.wid) / 2,
+          y + (l[1] * j * rw.wid) / 2,
+          h,
+        );
+        pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+      }
+    }
+    for (let i = 0; i < nL; i++) {
+      const a = 2 * i;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    put(g, terrainMat({ color: "#6d6c69", offset: -2 }), 3);
+  }
 }
 
 // ==== 45_rover.js
@@ -14072,35 +17396,74 @@ function padExactDepth(m) {
   m.customProgramCacheKey = () => "padExactDepth";
   return m;
 }
+// Weathering, in the shader from the pad's own coordinates (the kit's merged meshes carry no texture coordinates): blotches
+// and grain over concrete, with the joints between its slabs; a softer mottle over paint and steel (rust streaks under
+// the rain, dust). w: how strong, 0 … 1; seams: the slab joints.
+const GLSL_PAD_WEATHER = `
+float padHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float padNoise(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(padHash(i), padHash(i + vec3(1, 0, 0)), f.x), mix(padHash(i + vec3(0, 1, 0)), padHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(padHash(i + vec3(0, 0, 1)), padHash(i + vec3(1, 0, 1)), f.x), mix(padHash(i + vec3(0, 1, 1)), padHash(i + vec3(1, 1, 1)), f.x), f.y), f.z); }`;
+function padWeather(m, w, seams) {
+  const base = m.onBeforeCompile;
+  m.onBeforeCompile = (s) => {
+    base(s);
+    s.vertexShader = s.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vPadP;")
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvPadP = position;",
+      );
+    s.fragmentShader = s.fragmentShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vPadP;" + GLSL_PAD_WEATHER,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+  { float b = 0.55 * padNoise(vPadP * 0.23) + 0.3 * padNoise(vPadP * 1.3) + 0.15 * padNoise(vPadP * 7.0);
+    float streak = padNoise(vec3(vPadP.x * 3.0, vPadP.y * 0.08, vPadP.z * 3.0)); // the rain's streaks down the faces
+    diffuseColor.rgb *= 1.0 + ${w.toFixed(2)} * (0.5 * (b - 0.5) + 0.25 * (streak - 0.5));
+    ${seams ? "vec3 q = abs(fract(vPadP / 6.1) - 0.5); float j = smoothstep(0.478, 0.492, max(max(q.x, q.y), q.z)); diffuseColor.rgb *= 1.0 - 0.18 * j;" : ""} }`,
+      );
+  };
+  m.customProgramCacheKey = () =>
+    "padExactDepth|weather" + w + (seams ? "s" : "");
+  return m;
+}
 // the material the engines light up when they fire (updatePad sets its colour): the flame deflector, or the ground under the
 // exhaust where there is no trench to look into
 const padGlow = () =>
   padExactDepth(new THREE.MeshBasicMaterial({ color: "#141210" }));
 function padMats() {
-  const pm = (c, k) => padExactDepth(mat(c, k, { name: "pad" })); // the pad's own materials (not shared with the vehicles)
+  const pm = (c, k, w = 0, seams = false) => {
+    const m = padExactDepth(mat(c, k, { name: "pad" }));
+    return w ? padWeather(m, w, seams) : m;
+  }; // the pad's own materials (not shared with the vehicles)
   return (
     padMats.m ||
     (padMats.m = {
-      concrete: pm("#aeaba3", "fabric"),
-      concreteD: pm("#8f8b83", "fabric"),
-      soot: pm("#45403a", "fabric"),
-      grass: pm("#6f7c57", "fabric"),
-      sand: pm("#c9c0a7", "fabric"),
-      rock: pm("#bdb9ae", "fabric"),
-      asphalt: pm("#55575a", "fabric"),
-      steel: pm("#8d9196", "metal"),
-      steelD: pm("#5a5e63", "metal"),
-      galv: pm("#a3a8ad", "metal"),
-      floor: pm("#6f7378", "dark"),
-      red: pm("#a9381f", "paint"),
-      redD: pm("#7d2a18", "paint"),
-      white: pm("#e4e3dd", "paint"),
-      grey: pm("#a8acb0", "paint"),
-      greyL: pm("#c8cbce", "paint"),
-      greyD: pm("#6c7075", "paint"),
-      black: pm("#26282b", "paint"),
-      orange: pm("#c9652a", "paint"),
-      yellow: pm("#d8b23a", "paint"),
+      concrete: pm("#aeaba3", "fabric", 1, true),
+      concreteD: pm("#8f8b83", "fabric", 1, true),
+      soot: pm("#45403a", "fabric", 0.8),
+      grass: pm("#6f7c57", "fabric", 0.6),
+      sand: pm("#c9c0a7", "fabric", 0.7),
+      rock: pm("#bdb9ae", "fabric", 0.8),
+      asphalt: pm("#55575a", "fabric", 0.6),
+      steel: pm("#8d9196", "metal", 0.5),
+      steelD: pm("#5a5e63", "metal", 0.5),
+      galv: pm("#a3a8ad", "metal", 0.5),
+      floor: pm("#6f7378", "dark", 0.5),
+      red: pm("#a9381f", "paint", 0.5),
+      redD: pm("#7d2a18", "paint", 0.5),
+      white: pm("#e4e3dd", "paint", 0.35),
+      grey: pm("#a8acb0", "paint", 0.45),
+      greyL: pm("#c8cbce", "paint", 0.45, true),
+      greyD: pm("#6c7075", "paint", 0.45),
+      black: pm("#26282b", "paint", 0.3),
+      orange: pm("#c9652a", "paint", 0.45),
+      yellow: pm("#d8b23a", "paint", 0.4),
       fibre: pm("#d9d2bd", "paint"),
       glass: pm("#2f3840", "glass"),
       wire: new THREE.LineBasicMaterial({
@@ -14457,10 +17820,8 @@ function padWire(g, a, b, sag) {
 // The ground around a pad: scrub and grass (a repeating mottled texture, 80 m to a tile) out to r, cut off at the coast
 // (o.sea: the bearing of the sea, degrees; o.shore: the shoreline's distance) with a beach before it, and the roads given
 // as strips [[e0, n0, e1, n1, width] …]. Without it the pad would stand on the globe's coarse texture (often sea there).
-function padGround(g, o = {}) {
-  const M = padMats(),
-    R = o.r || 2200;
-  const tex =
+function padGroundTex() {
+  return (
     padGround.tex ||
     (padGround.tex = stripeTex(
       (c, w, h) => {
@@ -14510,7 +17871,13 @@ function padGround(g, o = {}) {
       },
       256,
       256,
-    ));
+    ))
+  );
+}
+function padGround(g, o = {}) {
+  const M = padMats(),
+    R = o.r || 2200,
+    tex = padGroundTex();
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   const sea = o.sea != null ? o.sea * DEG : null,
     se = sea != null ? Math.sin(sea) : 0,
@@ -14578,6 +17945,7 @@ function padGround(g, o = {}) {
     m.customProgramCacheKey = () => "padGround";
   }
   const land = new THREE.Mesh(geo, padGround.mat);
+  land.userData.padGround = true;
   g.add(land);
   const k = padKit();
   // strips on the land (the beach along the shoreline, the roads), cut into pieces of about 80 m for the same reason
@@ -14621,7 +17989,10 @@ function padGround(g, o = {}) {
   }
   for (const [e0, n0, e1, n1, w] of o.roads || [])
     strip(o.roadMat || M.rock, e0, n0, e1, n1, w, 0.1);
-  k.build(g);
+  const built = new THREE.Group();
+  k.build(built);
+  built.userData.padGround = true;
+  g.add(built); // (hidden when the site's terrain is drawn, app/43_terrain.js)
 }
 // Launch Complex 39's raised pad: a flat concrete top 99 m east–west by 119 m north–south, h above the ground on a mound
 // sloping out at 1 in 2.5 (grassed); the flame trench, 17.7 m wide with its floor at ground level, cut through it north–
@@ -15312,7 +18683,7 @@ function padFH(md) {
 // SpaceX's launch and catch tower ("Mechazilla", as at Starbase and on Pad 39A): 143 m of dark steel modules, about 12 m
 // square, a 3-m lightning rod; the two 36-m catch arms ("chopsticks") on their carriage and the ship's quick-disconnect
 // arm, both reaching toward the launch mount (facing +E from a tower at e, n: arms toward dir, radians from east)
-function padStarshipTower(k, e, n, dir = 0) {
+function padStarshipTower(k, e, n, dir = 0, g = null) {
   const M = padMats(),
     w = 12;
   padLattice(k, M.black, e, n, w, 0, 143, {
@@ -15330,26 +18701,61 @@ function padStarshipTower(k, e, n, dir = 0) {
     pn = ce,
     y = 74,
     f0 = PV(e + (ce * w) / 2, y, n + (cn * w) / 2);
-  k.box(M.greyD, e + ce * (w / 2 + 1), y - 3, n + cn * (w / 2 + 1), 5, 7, 5);
-  for (const s of [-1, 1])
+  k.box(M.greyD, e + ce * (w / 2 + 1), y - 3, n + cn * (w / 2 + 1), 5, 7, 5); // the carriage
+  if (!g) {
+    // still: the chopsticks opened a little, the quick-disconnect arm out
+    for (const s of [-1, 1])
+      k.beam(
+        M.greyD,
+        f0.clone().add(PV(pe * s * 3, 0, pn * s * 3)),
+        PV(
+          e + ce * (w / 2 + 34) + pe * s * 7,
+          y,
+          n + cn * (w / 2 + 34) + pn * s * 7,
+        ),
+        1.6,
+        3.2,
+      );
     k.beam(
       M.greyD,
-      f0.clone().add(PV(pe * s * 3, 0, pn * s * 3)),
+      PV(e + (ce * w) / 2, 91, n + (cn * w) / 2),
+      PV(e + ce * (w / 2 + 14), 91, n + cn * (w / 2 + 14)),
+      1.4,
+      2.0,
+    );
+    return null;
+  }
+  // in motion (g: the pad group): each chopstick a lattice arm on its own pivot at the carriage (rotation.y opens it), the
+  // quick-disconnect arm on a pivot at the tower's face (rotation.y swings it back along the face)
+  const mkArm = (len, wd, hg, yy, side) => {
+    const piv = new THREE.Group();
+    piv.position.copy(
       PV(
-        e + ce * (w / 2 + 34) + pe * s * 7,
-        y,
-        n + cn * (w / 2 + 34) + pn * s * 7,
+        e + ce * (w / 2 + 1.5) + pe * side * 2.6,
+        yy,
+        n + cn * (w / 2 + 1.5) + pn * side * 2.6,
       ),
-      1.6,
-      3.2,
-    ); // the chopsticks, opened
-  k.beam(
-    M.greyD,
-    PV(e + (ce * w) / 2, 91, n + (cn * w) / 2),
-    PV(e + ce * (w / 2 + 14), 91, n + cn * (w / 2 + 14)),
-    1.4,
-    2.0,
-  ); // the ship's quick-disconnect arm
+    );
+    const a = padArm(len, wd, hg, M.greyD, {});
+    a.rotation.y = Math.atan2(-ce, cn) + Math.PI;
+    piv.add(a);
+    g.add(piv);
+    return piv;
+  };
+  const sticks = [
+    mkArm(36, 1.6, 3.2, y - 1.6, -1),
+    mkArm(36, 1.6, 3.2, y - 1.6, 1),
+  ];
+  for (const [i, st] of sticks.entries()) {
+    const s = i ? 1 : -1;
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.4, 2.8), M.yellow);
+    tip.position.set(0, 1.6, -35.5);
+    st.children[0].add(tip);
+    st.userData.side = s;
+  }
+  const qd = mkArm(14, 1.4, 2.0, 91 - 1, 0);
+  qd.position.copy(PV(e + (ce * w) / 2, 90, n + (cn * w) / 2));
+  return { sticks, qd, base: Math.atan2(-ce, cn) + Math.PI };
 }
 // ---------------- Atlas V on Space Launch Complex 41 (Perseverance, 2020) ----------------
 // A "clean pad": the rocket rolls the 550 m from the Vertical Integration Facility on its Mobile Launch Platform (16.8 ×
@@ -15438,7 +18844,67 @@ function padLC12(md) {
     stand = deck + 0.6 - LAUNCHERS.atlasAgena.stages[0].eng.len;
   k.box(M.concrete, 0, 0, 0, 18.3, deck, 23.8);
   k.box(M.soot, 0, 0, 0, 7, 0.05, 40);
-  k.box(M.steelD, 0, deck, 0, 6.2, 0.6, 6.2);
+  // the launcher: a steel ring stand on four legs over the deflector's opening, the hold-down arms at the tank's foot
+  k.box(M.black, 0, deck - 0.02, 0, 5.4, 0.04, 5.4);
+  for (const [e, n] of [
+    [-2.6, -2.6],
+    [2.6, -2.6],
+    [2.6, 2.6],
+    [-2.6, 2.6],
+  ])
+    k.box(M.steelD, e, deck, n, 0.7, 0.6, 0.7);
+  k.cyl(M.steelD, 0, deck + 0.6, 0, 2.2, 2.2, 0.5, 32);
+  k.cyl(M.steel, 0, deck + 1.1, 0, 1.75, 1.75, 0.25, 32, true);
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2 + Math.PI / 4;
+    k.box(
+      M.yellow,
+      Math.cos(a) * 2.1,
+      deck + 1.1,
+      Math.sin(a) * 2.1,
+      0.5,
+      1.0,
+      0.5,
+      -a,
+    );
+  }
+  // the deck: railings round its edge, the stair down its east side, cable trays and pipes from the tower to the stand
+  const rail = (a, b) => {
+    k.beam(M.galv, a, b, 0.06, 0.06);
+    const n = Math.max(1, Math.round(a.distanceTo(b) / 2));
+    for (let i = 0; i <= n; i++) {
+      const p = a.clone().lerp(b, i / n);
+      k.beam(M.galv, p.clone().setY(deck), p, 0.06);
+    }
+  };
+  const dy = deck + 1.05,
+    E = 9.15,
+    N = 11.9;
+  rail(PV(-E, dy, -N), PV(-E, dy, -8.4));
+  rail(PV(-E, dy, -0.1), PV(-E, dy, N));
+  rail(PV(-E, dy, N), PV(E, dy, N));
+  rail(PV(E, dy, N), PV(E, dy, -N));
+  rail(PV(E, dy, -N), PV(-E, dy, -N));
+  for (let i = 0; i < 12; i++)
+    k.box(
+      M.galv,
+      E + 1.2,
+      (deck * (i + 1)) / 12 - 0.1,
+      2.5 - i * 0.3,
+      2.0,
+      0.1,
+      0.3,
+    );
+  k.box(M.galv, E + 1.2, 0, 4.2, 2.2, deck, 0.2);
+  for (const n of [-1.2, 1.2]) k.box(M.greyD, -3.4, deck, n, 4.0, 0.3, 0.5);
+  k.rod(M.steel, PV(-5, deck + 0.5, 1.9), PV(-1.9, deck + 0.5, 1.9), 0.18);
+  k.rod(M.steel, PV(-5, deck + 0.8, 2.3), PV(-1.9, deck + 0.8, 2.3), 0.12);
+  for (const [e, n, w] of [
+    [6, -8, 2.2],
+    [6, -4.5, 1.6],
+    [-6, 9, 2.0],
+  ])
+    k.box(M.grey, e, deck, n, w, 1.4, 1.0); // equipment cabinets
   k.quads(M.concrete, [
     [
       PV(-9.15, deck, -8),
@@ -15455,6 +18921,11 @@ function padLC12(md) {
   }); // umbilical tower
   for (const y of [deck + 14, deck + 23])
     k.beam(M.redD, PV(-5, y, 0), PV(-1.4, y - 1, 0), 0.4);
+  for (const y of [deck + 6.2, deck + 12.4, deck + 18.6])
+    k.box(M.floor, -6.5, y, 0, 3.4, 0.2, 3.4);
+  k.box(M.greyD, -6.5, deck + 25, 0, 2.0, 2.4, 2.0); // its landings and the hoist house on top
+  for (const y of [deck + 8, deck + 17])
+    k.rod(M.galv, PV(-5, y, 0), PV(-1.6, y, 0), 0.08); // the umbilical lines
   // the service tower, rolled 90 m north along its rails
   const sn = 95;
   for (const e of [-6, 6]) k.box(M.steelD, e, 0, sn / 2, 0.4, 0.3, sn + 20);
@@ -15553,6 +19024,74 @@ function padWenchang(md) {
     ],
   };
 }
+// ---------------- Ariane 5 on ELA-3, Kourou ----------------
+// The launch table: a 900-t steel platform rolled out on rails from the final-assembly building 2.8 km away, the 58-m
+// umbilical mast standing on it; the concrete launch zone under it with three flame trenches (one for each booster,
+// one for the core) running north; the water tower, the four lightning masts at the zone's corners; jungle round it.
+function padELA3(md) {
+  const M = padMats(),
+    k = padKit(),
+    g = new THREE.Group(),
+    top = 8.0,
+    stand = top - LAUNCHERS.ariane5ECA.stages[1].eng.len;
+  k.box(M.concrete, 0, 0, 0, 90, 0.3, 90);
+  for (const e of [-4.3, 0, 4.3]) k.box(M.soot, e, 0.3, 30, 6, 0.05, 60); // the zone and its three trenches
+  k.box(M.greyL, 0, 1.2, 0, 25, top - 1.2, 21);
+  for (const e of [-9, 9]) k.box(M.greyD, e, 0, 0, 4, 1.2, 18); // the table on its bogies
+  k.box(M.black, 0, top - 0.02, 0, 12, 0.04, 8);
+  for (const e of [-4.3, 4.3]) k.cyl(M.steelD, e, top, 0, 2.0, 2.0, 0.6, 24);
+  k.cyl(M.steelD, 0, top, 0, 2.9, 2.9, 0.6, 32); // the exhaust ducts' rims, the core's and the boosters' support rings
+  for (const e of [-10, 10]) k.box(M.steelD, e, 0, -1400, 0.5, 0.3, 2800); // the rails west to the BAF
+  const mn = 9.5;
+  padLattice(k, M.white, 0, mn, 6, top, 58, {
+    step: 5.8,
+    core: 3,
+    coreMat: M.greyL,
+    floorEvery: 2,
+  }); // the umbilical mast on the table's north edge
+  for (const y of [top + 24, top + 41, top + 50])
+    k.beam(M.greyL, PV(0, y, mn - 3), PV(0, y - 0.6, 3.2), 0.5); // the umbilical arms to the core and the upper stage
+  k.box(M.greyL, 0, top + 58, mn, 6.5, 1.5, 6.5);
+  k.cyl(M.fibre, 0, top + 59.5, mn, 0.3, 0.1, 6, 8);
+  padWaterTower(k, 80, 20, 90, 7, 10);
+  const T = [
+    [-90, 90],
+    [90, 90],
+    [90, -90],
+    [-90, -90],
+  ].map(([e, n]) => padLightningTower(k, e, n, 70, 22, 2.8));
+  k.box(M.greyL, -2800, 0, 0, 90, 90, 60); // the final-assembly building, down the rails
+  k.build(g);
+  padGround(g, {
+    sea: 60,
+    shore: 1800,
+    r: 6500,
+    roads: [
+      [0, -60, -2800, -60, 10],
+      [60, 0, 2000, 0, 8],
+    ],
+  }); // (the disc reaches past the ground camera, 5.9 km out)
+  for (let i = 0; i < 4; i++) padWire(g, T[i], T[(i + 1) % 4], 10);
+  const glow = padGlow(),
+    lit = new THREE.Mesh(new THREE.PlaneGeometry(16, 40), glow);
+  lit.rotation.x = -Math.PI / 2;
+  lit.position.y = 0.4;
+  lit.position.z = 20;
+  g.add(lit);
+  return {
+    group: g,
+    stand,
+    glow,
+    deckY: top,
+    foot: 6,
+    trenchD: 40,
+    block: [
+      padBlock(0, mn, 3, 5),
+      padBlock(80, 20, 8, 5),
+      ...T.map((p) => padBlock(-p.x, p.z, 1.4, 5)),
+    ],
+  };
+}
 // ---------------- Starship at Starbase, Texas ----------------
 // The orbital launch mount: a ring-shaped table on six legs, its top 20 m up, with twenty clamps for the booster; the water-
 // cooled steel plate under it; the launch and catch tower 28 m west (143 m, its chopsticks and the ship's quick-disconnect
@@ -15598,16 +19137,16 @@ function padStarbase(md) {
     const a = (i * TAU) / 20;
     k.box(
       M.steelD,
-      Math.cos(a) * 5.0,
-      top,
-      Math.sin(a) * 5.0,
-      0.8,
+      Math.cos(a) * 5.4,
+      top - 0.4,
+      Math.sin(a) * 5.4,
+      0.9,
+      0.5,
       1.4,
-      1.2,
       -a,
     );
-  }
-  padStarshipTower(k, -28, -3, 0);
+  } // the clamps' seats on the table
+  const tower = padStarshipTower(k, -28, -3, 0, g);
   for (let r = 0; r < 3; r++)
     for (let i = 0; i < 6; i++) {
       const geo = new THREE.CylinderGeometry(3.2, 3.2, 26, 20);
@@ -15627,11 +19166,56 @@ function padStarbase(md) {
   lit.rotation.x = -Math.PI / 2;
   lit.position.y = 1.2;
   g.add(lit);
+  // the twenty hold-down clamps: each on a vertical pivot at its seat, its jaw over the booster's skirt; they swing out at liftoff
+  const clamps = [];
+  for (let i = 0; i < 20; i++) {
+    const a = (i * TAU) / 20,
+      piv = new THREE.Group();
+    piv.position.set(-Math.cos(a) * 5.4, top + 0.1, Math.sin(a) * 5.4);
+    piv.rotation.y = a;
+    g.add(piv);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.3, 0.8), M.steelD);
+    jaw.position.set(0.55, 0.65, 0);
+    piv.add(jaw);
+    clamps.push(piv);
+  }
+  // the booster quick-disconnect at the mount (the tower's side): a plate against the skirt on a short arm, which pulls back
+  const bqd = new THREE.Group();
+  bqd.position.set(7.5, top + 1.5, 0);
+  g.add(bqd); // (pad frame: +X is west, toward the tower)
+  const bqdArm = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 1.6), M.greyD);
+  bqdArm.position.set(-1.2, 0, 0);
+  bqd.add(bqdArm);
+  const bqdPlate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 2.4, 2.6),
+    M.steelD,
+  );
+  bqdPlate.position.set(-2.9, 0, 0);
+  bqd.add(bqdPlate);
+  // Timing (approximate, from the webcasts): the chopsticks open from the ship to their launch position over the last
+  // quarter hour; the ship's quick-disconnect arm swings back along the tower about 30 s before liftoff; the booster's
+  // quick-disconnect pulls back and the clamps swing out as the engines come up to thrust at T−0
+  const open = (tl, t0, t1) => smoothstep(clamp((tl - t0) / (t1 - t0), 0, 1));
+  const animate = (t) => {
+    const tl = t - md.M.t0;
+    const o = open(tl, -900, -720);
+    for (const st of tower.sticks)
+      st.rotation.y = st.userData.side * (0.06 + 0.5 * o);
+    tower.qd.rotation.y = -1.9 * open(tl, -32, -20);
+    const rel = open(tl, -0.3, 0.9);
+    for (const c of clamps)
+      ((c.rotation.y = c.userData.a0 ?? (c.userData.a0 = c.rotation.y)),
+        (c.rotation.y = c.userData.a0 + 1.1 * rel));
+    bqd.position.x = 7.5 + 1.8 * open(tl, -1.0, 0.0);
+    bqd.rotation.z = 0.5 * open(tl, 0.2, 1.4);
+  };
+  animate(md.M.t0 - 3600);
   return {
     group: g,
     stand,
     glow,
     deckY: top,
+    animate,
     foot: 11,
     trenchD: 25,
     block: [padBlock(-28, -3, 6, 9)],
@@ -15650,6 +19234,7 @@ function padModel(md) {
   if (site === "CCSFS41") return padSLC41(md);
   if (site === "CCSFS12") return padLC12(md);
   if (site === "WENCHANG") return padWenchang(md);
+  if (site === "KOUROU3") return padELA3(md);
   if (site === "STARBASE") return padStarbase(md);
   return null;
 }
@@ -15805,7 +19390,7 @@ function initExhaust() {
   EXH.tex.minFilter = THREE.LinearMipmapLinearFilter;
 }
 const GLSL_EXH_COMMON = `
-uniform sampler2D tNoise; uniform vec3 uSunDir; uniform vec3 uFogCol; uniform float uExpo;
+uniform sampler2D tNoise; uniform vec3 uSunDir; uniform vec3 uFogCol; uniform float uExpo; uniform float uHG;
 varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vWP; varying float vFade;
 // Smoke of optical depth tau seen at a point where its surface (a column's or a puff's) faces N. Dense smoke scatters like a
 // matt surface (light diffusing through it reaches its far side too); thin smoke glows looking toward the Sun (forward
@@ -15818,7 +19403,7 @@ vec4 smoke(float tau, float edge, vec3 N, float n) {
   vec3 V = normalize(cameraPosition - vWP);
   float wrap = clamp((dot(N, uSunDir) + 0.8) / 1.8, 0.0, 1.0);
   float ct = dot(-V, uSunDir), hg = 0.64 / pow(1.36 - 1.2 * ct, 1.5);
-  vec3 sunL = vSun * mix(wrap, 0.12 + 0.3 * hg, exp(-tau)) * uExpo, ambL = vAmb * (0.8 + 0.4 * n);
+  vec3 sunL = vSun * mix(wrap, 0.12 + 0.3 * hg * uHG, exp(-tau)) * uExpo, ambL = vAmb * (0.8 + 0.4 * n);
   float af = a * (1.0 - 0.7 * vFog);
   vec3 col = mix(sunL + ambL, uFogCol, vFog) * af;
   float mx = max(max(col.r, col.g), col.b); if (mx > 1.0) col /= mx; // overexposed: keep the hue
@@ -15861,9 +19446,9 @@ void main(){
 const GLSL_PUFF_V = `
 #include <common>
 #include <logdepthbuf_pars_vertex>
-attribute vec3 aUV; attribute float aTau; attribute vec3 aSun; attribute vec3 aAmb; attribute float aFog; attribute float aFade;
-varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vWP; varying float vFade;
-void main(){ vUV = aUV; vTau = aTau; vSun = aSun; vAmb = aAmb; vFog = aFog; vFade = aFade;
+attribute vec3 aUV; attribute float aTau; attribute vec3 aSun; attribute vec3 aAmb; attribute float aFog; attribute float aFade; attribute vec3 aN;
+varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vWP; varying float vFade; varying vec3 vN;
+void main(){ vUV = aUV; vTau = aTau; vSun = aSun; vAmb = aAmb; vFog = aFog; vFade = aFade; vN = mat3(modelMatrix) * aN;
   vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp;
 #include <logdepthbuf_vertex>
 }`;
@@ -15871,15 +19456,23 @@ const GLSL_PUFF_F = `
 #include <common>
 #include <logdepthbuf_pars_fragment>
 ${GLSL_EXH_COMMON}
+varying vec3 vN;
 void main(){
   #include <logdepthbuf_fragment>
   vec2 q = vUV.xy; float n = bil(q * 0.45 + vec2(vUV.z * 0.137, vUV.z * 0.071));
+  float n2 = bil(q * 1.4 + vec2(vUV.z * 0.311, vUV.z * 0.197)); // finer billows, which eat into the outline
   float rEdge = 0.75 * (0.7 + 0.6 * n), x = length(q) / rEdge; if (x >= 1.0) discard; // the puff's radius is 0.75 of the quad's half-size
   float chord = sqrt(1.0 - x * x);
   vec3 V = normalize(cameraPosition - vWP), right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]), up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-  // a soft blob, its outline faded over most of its radius; shaded nearly flat, as the smoke it stands for (a stretch of
-  // column seen end-on, a patch of the wide cloud high up) has no round surface to catch the light
-  vec4 c = smoke(vTau * chord * (0.45 + 1.1 * n), 1.0 - smoothstep(0.25, 1.0, x), normalize(0.4 * (right * q.x + up * q.y) / rEdge + V * chord), n);
+  // the outline: faded over most of the radius and eroded by the finer billows, so no puff reads as a disc
+  float edge = (1.0 - smoothstep(0.25, 1.0, x)) * smoothstep(0.12, 0.55, n2 + 0.6 * (1.0 - x));
+  // the shading: a soft blob is nearly flat, but where the puff knows which way it bulges out of its cloud (aN, the
+  // launch cloud's rolling mass) it is lit as that surface, with the finer billows modelling it
+  vec3 Nf = normalize(0.4 * (right * q.x + up * q.y) / rEdge + V * chord);
+  float hasN = step(0.5, length(vN));
+  vec3 Nc = normalize(mix(Nf, normalize(vN + 1.1 * (right * (n2 - 0.5) + up * (n - 0.5))), 0.75 * hasN));
+  vec4 c = smoke(vTau * chord * (0.45 + 1.1 * n), edge, Nc, n);
+  c.rgb *= mix(1.0, 0.55 + 0.5 * smoothstep(0.2, 0.8, n2), hasN); // the clefts between the billows, where less light gets in
   if (max(max(c.r, c.g), c.b) < 0.0015 && c.a < 0.002) discard;
   gl_FragColor = vec4(c.rgb, 1.0);
   #include <colorspace_fragment>
@@ -16037,6 +19630,7 @@ function buildExhaust(md) {
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
     uFogCol: { value: new THREE.Color(0, 0, 0) },
     uExpo: { value: 1 },
+    uHG: { value: 1 },
   }; // shared by both
   const mk = (geo, vs, fs) => {
     const ms = new THREE.Mesh(
@@ -16073,6 +19667,7 @@ function buildExhaust(md) {
     gp.setAttribute("aAmb", B(3));
     gp.setAttribute("aFog", B(1));
     gp.setAttribute("aFade", B(1));
+    gp.setAttribute("aN", B(3)); // (aN stays zero: the trail's puffs are shaded as flat blobs)
     const ix = new Uint32Array(6 * np);
     for (let i = 0; i < np; i++) {
       const a = 4 * i;
@@ -16520,6 +20115,517 @@ function updateExhaust(t) {
   }
 }
 
+// ==== 48_padcloud.js
+// ============================================================================
+// The cloud of a launch: what the exhaust does when it hits the pad. The engines' blast goes down the flame trench and
+// out of both ends as a horizontal jet of fire that turns, within seconds, into rolling clouds of smoke and steam hundreds
+// of metres across, lit orange from inside while the engines are still near and white in the sunlight as they rise and
+// spread; round the launch mount the deluge water boils into white steam. Solid boosters make a dense white cloud of
+// aluminium oxide, kerosene engines a browner, sootier one, hydrogen engines mostly steam.
+// Drawn as puffs (camera-facing quads shaded as billowing balls of smoke, app/47_exhaust.js's shader) fixed to the pad, so
+// the cloud stays where it was made as Earth turns. Each puff is a parcel let out of the trench at its own moment: it
+// shoots out, slows, rises as the hot gas is buoyant, grows as it mixes with the air and thins out, and fades in a few
+// minutes. The parcels follow each other, so the cloud is a continuous rolling mass rather than separate balls.
+// ============================================================================
+const PCL_N = 1500; // puffs
+const PCL_FIRE = [1.0, 0.5, 0.2]; // the flame's light in the cloud
+const _pclQ = new THREE.Quaternion(),
+  _pclR = new THREE.Vector3(),
+  _pclU = new THREE.Vector3();
+const pclHash = (i) => {
+  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+function buildPadCloud() {
+  if (!EXH.tex) initExhaust();
+  const np = PCL_N,
+    g = new THREE.BufferGeometry(),
+    B = (k) =>
+      new THREE.BufferAttribute(new Float32Array(4 * np * k), k).setUsage(
+        THREE.DynamicDrawUsage,
+      );
+  g.setAttribute("position", B(3));
+  g.setAttribute("aUV", B(3));
+  g.setAttribute("aTau", B(1));
+  g.setAttribute("aSun", B(3));
+  g.setAttribute("aAmb", B(3));
+  g.setAttribute("aFog", B(1));
+  g.setAttribute("aFade", B(1));
+  g.setAttribute("aN", B(3));
+  const ix = new Uint32Array(6 * np);
+  for (let i = 0; i < np; i++) {
+    const a = 4 * i;
+    ix.set([a, a + 1, a + 2, a, a + 2, a + 3], 6 * i);
+  }
+  g.setIndex(new THREE.BufferAttribute(ix, 1));
+  g.setDrawRange(0, 0);
+  const uvA = g.attributes.aUV.array;
+  for (let i = 0; i < np; i++)
+    [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].forEach(([x, y], k) => {
+      uvA[12 * i + 3 * k] = x;
+      uvA[12 * i + 3 * k + 1] = y;
+      uvA[12 * i + 3 * k + 2] = pclHash(7 * i + 5) * 40;
+    });
+  const m = new THREE.Mesh(
+    g,
+    new THREE.ShaderMaterial({
+      vertexShader: GLSL_PUFF_V,
+      fragmentShader: GLSL_PUFF_F,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        tNoise: { value: EXH.tex },
+        uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+        uFogCol: { value: new THREE.Color(0, 0, 0) },
+        uExpo: { value: 1 },
+        uHG: { value: 0.2 },
+      },
+    }),
+  ); // (uHG: little of the forward glow of thin smoke, which the thousand overlapping puffs of a dense cloud would add up to a blaze)
+  m.frustumCulled = false;
+  m.renderOrder = 4;
+  m.visible = false;
+  m.userData.isPadCloud = true;
+  return m;
+}
+// what the cloud is made of, from the engines that fire at liftoff: colour and density per propellant
+function pclMix(L) {
+  const st = liftoffStages(L);
+  let w = 0,
+    col = [0, 0, 0],
+    soot = 0;
+  for (const s of st) {
+    const P = EXH_PROP[s.prop] || EXH_PROP.kerolox,
+      f = stageFlow(s) * (0.4 + P.k);
+    w += f;
+    soot +=
+      (s.prop === "kerolox"
+        ? 1
+        : s.prop === "hypergolic" || s.prop === "udmh" || s.prop === "mmh"
+          ? 0.8
+          : 0.1) * f;
+    for (let j = 0; j < 3; j++) col[j] += P.col[j] * f;
+  }
+  if (!w) return { col: [0.9, 0.9, 0.9], soot: 0.3 };
+  return { col: col.map((x) => x / w), soot: soot / w };
+}
+// g: the pad group (metres, scaled to km); blast(te): how hard the engines hit the pad at te; sC: the vehicle's size of
+// blast (1 for the Saturn V); sunUp: sine of the Sun's elevation at the pad
+function updatePadCloud(g, t, tIgn, span, blast, sC, L, sunUp) {
+  const cl = g.children.find((o) => o.userData.isPadCloud);
+  if (!cl || cl.userData.off) return;
+  const ud = g.userData,
+    trenchD = ud.trenchD,
+    foot = ud.foot,
+    deckY = ud.deckY;
+  if (!cl.userData.mix) cl.userData.mix = pclMix(L);
+  if (!cl.userData.wind) {
+    const md = MV.md;
+    let seed = 0;
+    for (const ch of md.cfg.launch + md.cfg.site)
+      seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+    cl.userData.wind = exhWind(seed)(0.05);
+  } // the launch's wind near the ground (m/s east, north), the one the exhaust trail drifts on
+  const wind = cl.userData.wind;
+  const { soot } = cl.userData.mix,
+    col = cl.userData.mix.col.map((x) => x * (0.78 - 0.22 * soot)); // sooty exhaust is darker; even steam, dense, is not white (its own shadow)
+  // light on the cloud: the Sun through the air (reddened low down), the sky's blue, and the flames; at night only the flames
+  const day = clamp(0.1 + sunUp * 3, 0, 1),
+    sunC = R.sunLight.color,
+    sunR = 0.42 * sunC.r * day,
+    sunG = 0.42 * sunC.g * day,
+    sunB = 0.42 * sunC.b * day;
+  const ambR = 0.03 + 0.14 * day * 0.75,
+    ambG = 0.04 + 0.14 * day * 0.85,
+    ambB = 0.05 + 0.14 * day;
+  const U = cl.material.uniforms;
+  U.uSunDir.value.copy(R.sunLight.position).normalize();
+  U.uExpo.value = 1;
+  // camera right and up in the pad's frame, for the quads
+  _pclQ.copy(g.quaternion).invert();
+  _pclR
+    .set(
+      R.camera.matrixWorld.elements[0],
+      R.camera.matrixWorld.elements[1],
+      R.camera.matrixWorld.elements[2],
+    )
+    .applyQuaternion(_pclQ);
+  _pclU
+    .set(
+      R.camera.matrixWorld.elements[4],
+      R.camera.matrixWorld.elements[5],
+      R.camera.matrixWorld.elements[6],
+    )
+    .applyQuaternion(_pclQ);
+  const A = cl.geometry.attributes,
+    pos = A.position.array,
+    tau = A.aTau.array,
+    sun = A.aSun.array,
+    amb = A.aAmb.array,
+    fog = A.aFog.array,
+    fade = A.aFade.array,
+    nrm = A.aN.array;
+  let n = 0;
+  const S3 = Math.sqrt(sC);
+  for (let i = 0; i < PCL_N; i++) {
+    const r1 = pclHash(5 * i + 1),
+      r2 = pclHash(5 * i + 2),
+      r3 = pclHash(5 * i + 3),
+      r4 = pclHash(5 * i + 4);
+    const te = tIgn + Math.pow(i / PCL_N, 1.5) * span + r1 * 0.1,
+      a = t - te;
+    if (a < 0) continue; // (most of them in the first seconds, when the blast is fiercest)
+    const k = blast(te);
+    if (k < 0.03 || a > 240) continue;
+    let x, y, z, sz, od, glow, lit;
+    const kind = i % 4,
+      side = kind % 2 ? 1 : -1; // lit: how much of the sun reaches the parcel through the cloud above it
+    if (kind < 3) {
+      // out of the trench: a jet of fire that becomes rolling smoke
+      const v0 = (70 + 60 * r2) * (0.35 + 0.65 * k) * (0.6 + 0.4 * S3),
+        tauV = 2.4 + 1.2 * r3;
+      const d =
+        trenchD + v0 * tauV * (1 - Math.exp(-a / tauV)) + (1.2 + 1.5 * r4) * a; // along the trench, slowing, then drifting on
+      const rise =
+        a < 14 ? 2.5 * a + 0.3 * a * a : 2.5 * 14 + 0.3 * 196 + 10.9 * (a - 14); // buoyant: up to 11 m/s
+      const lift = (0.3 + 0.7 * r4) * rise * (0.8 + 0.4 * S3),
+        top = Math.min((lift / Math.max(rise, 1)) * 1.4, 1); // how near the parcel is to the top of the column
+      // the cap: the hot column's top rolls over as a vortex ring, its parcels going out and round and down; the ring widens as it climbs
+      const ring = 0.3 * lift * smoothstep((a - 3) / 8),
+        th = r2 * TAU + 0.35 * a * top,
+        roll = ring * top;
+      const spread =
+        (r3 - 0.5) * (18 + 2.4 * a) * S3 +
+        roll * Math.cos(th) * Math.sign(r3 - 0.5);
+      x = spread + 10 * Math.sin(0.7 * a + 6 * r2) * Math.min(a / 5, 1);
+      z = side * d + roll * 0.5 * Math.sin(th);
+      y =
+        7 +
+        lift * (0.25 + 0.75 * Math.min(a / 2, 1)) +
+        roll * 0.6 * Math.sin(th);
+      sz =
+        (18 + 65 * (1 - Math.exp(-a / 7)) + 1.1 * a) *
+        (0.5 + 0.5 * S3) *
+        (0.8 + 0.4 * r2);
+      od = (1.8 + 1.4 * soot) * Math.pow(18 / sz, 0.8) * (0.5 + 0.5 * k);
+      glow = Math.exp(-a / 1.6) * (0.4 + 0.6 * k) * 1.4;
+      lit = 0.2 + 0.8 * top * top; // the column's top in full sun, its flanks and skirts in the shadow of the mass above
+    } else {
+      // steam from the deluge water, boiling up round the launch mount
+      const ang = r2 * TAU,
+        rr = foot + 4 + 14 * r3 + 2.5 * a;
+      x = Math.cos(ang) * rr;
+      z = Math.sin(ang) * rr;
+      y = deckY + 2 + (3 + 4 * r1) * a + 0.1 * a * a;
+      sz = (9 + 30 * (1 - Math.exp(-a / 5)) + 0.7 * a) * (0.5 + 0.5 * S3);
+      od = 1.6 * Math.pow(10 / sz, 0.7) * (0.5 + 0.5 * k);
+      glow = 0.35 * Math.exp(-a / 1.5) * k;
+      lit = 0.35 + 0.65 * Math.min(a / 10, 1) * (0.4 + 0.6 * r1); // the steam low round the mount, under the trench clouds
+    }
+    const wd = 0.7 * Math.max(a - 2, 0);
+    x -= wind[0] * wd;
+    z += wind[1] * wd; // the surface wind carries the cloud off (pad frame: +X west, +Z north)
+    const life =
+      Math.exp(-a / (70 + 40 * sC)) * (1 - smoothstep((a - 150) / 90));
+    const o = 4 * n,
+      hs = sz; // the quad's half-size (the puff's radius is 0.75 of it)
+    // which way this parcel bulges out of the cloud: outward from the trench's axis and upward, the column's rolling surface
+    const nx = x,
+      ny = 0.6 * y + 0.3 * sz,
+      nz = kind < 3 ? z - side * trenchD : z,
+      nl = Math.hypot(nx, ny, nz) || 1;
+    for (let c = 0; c < 4; c++) {
+      const qx = c === 0 || c === 3 ? -1 : 1,
+        qy = c < 2 ? -1 : 1,
+        j = 3 * (o + c);
+      pos[j] = x + (_pclR.x * qx + _pclU.x * qy) * hs;
+      pos[j + 1] = y + (_pclR.y * qx + _pclU.y * qy) * hs;
+      pos[j + 2] = z + (_pclR.z * qx + _pclU.z * qy) * hs;
+      nrm[j] = nx / nl;
+      nrm[j + 1] = ny / nl;
+      nrm[j + 2] = nz / nl;
+      tau[o + c] = od * life;
+      fade[o + c] = 1;
+      fog[o + c] = 0; // (fully billowed from the start: the jet is one continuous mass)
+      sun[j] = sunR * col[0] * lit;
+      sun[j + 1] = sunG * col[1] * lit;
+      sun[j + 2] = sunB * col[2] * lit;
+      amb[j] = ambR * col[0] + PCL_FIRE[0] * glow * 2.2;
+      amb[j + 1] = ambG * col[1] + PCL_FIRE[1] * glow * 2.2;
+      amb[j + 2] = ambB * col[2] + PCL_FIRE[2] * glow * 2.2;
+    }
+    n++;
+  }
+  for (const k of ["position", "aTau", "aSun", "aAmb", "aFog", "aFade", "aN"])
+    A[k].needsUpdate = true;
+  cl.geometry.setDrawRange(0, 6 * n);
+  cl.visible = n > 0;
+}
+
+// ==== 49_contrail.js
+// ============================================================================
+// Wingtip vortex trails: a winged vehicle gliding home through moist air at high lift leaves two white threads of
+// condensation spinning off its wingtips (the low pressure in the core of each vortex cools the air below its dew point).
+// They form where the air is dense and humid, in the lowest kilometres, and strongest in the pull-up of the flare and the
+// turns of the heading alignment cone; they fade in half a minute. How humid the air is depends on the site: Florida's
+// morning air is wet, the high desert at Edwards dry.
+// Each trail is a ribbon of samples fixed to the turning Earth (Earth-fixed coordinates, km), turned to face the camera and
+// drawn as a soft thread that widens and thins with age. Models that can leave them carry userData.wingtips, the tips in
+// the model's own frame (metres).
+// ============================================================================
+const CTR_N = 360,
+  CTR_LIFE = 24; // samples per trail; seconds a sample lasts
+const CTR_HUMID = { KSC15: 1, KSC33: 1, EDW22: 0.55, EDW23: 0.55, NOR17: 0.4 }; // by runway; others 0.7
+const GLSL_CTR_V = `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec2 aUV; attribute float aA;
+varying vec2 vUV; varying float vA; varying vec3 vWP;
+void main(){ vUV = aUV; vA = aA; vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp;
+#include <logdepthbuf_vertex>
+}`;
+const GLSL_CTR_F = `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uSun; uniform vec3 uAmb; uniform vec3 uSunDir;
+varying vec2 vUV; varying float vA; varying vec3 vWP;
+void main(){
+  #include <logdepthbuf_fragment>
+  float x = abs(vUV.y); if (x >= 1.0) discard;
+  // a round thread: dense in the middle, soft at the edge; it glows looking toward the Sun (forward scattering)
+  float chord = sqrt(1.0 - x * x), a = vA * chord * (1.0 - smoothstep(0.55, 1.0, x));
+  vec3 V = normalize(cameraPosition - vWP); float hg = 0.5 / pow(1.36 - 1.2 * dot(-V, uSunDir), 1.5);
+  vec3 col = (uSun * (0.6 + 0.15 * hg) + uAmb) * a;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(col, 1.0);
+  #include <colorspace_fragment>
+  gl_FragColor.a = a;
+}`;
+const _ctrQ = new THREE.Quaternion(),
+  _ctrV = new THREE.Vector3(),
+  _ctrT = new THREE.Vector3(),
+  _ctrS = new THREE.Vector3(),
+  _ctrC = new THREE.Quaternion();
+function contrailInit(c) {
+  const tr = {
+    head: 0,
+    n: 0,
+    P: new Float64Array(3 * CTR_N * 2),
+    T: new Float64Array(CTR_N),
+    K: new Float32Array(CTR_N),
+    mesh: null,
+    tipNode: null,
+    tipKey: null,
+    lastT: null,
+  };
+  const cap = CTR_N * 2,
+    g = new THREE.BufferGeometry(),
+    A = (k) =>
+      new THREE.BufferAttribute(new Float32Array(2 * cap * k), k).setUsage(
+        THREE.DynamicDrawUsage,
+      );
+  g.setAttribute("position", A(3));
+  g.setAttribute("aUV", A(2));
+  g.setAttribute("aA", A(1));
+  const idx = new Uint32Array(6 * (cap - 1));
+  for (let i = 0; i < cap - 1; i++) {
+    const a = 2 * i;
+    idx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], 6 * i);
+  }
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.setDrawRange(0, 0);
+  const m = new THREE.Mesh(
+    g,
+    new THREE.ShaderMaterial({
+      vertexShader: GLSL_CTR_V,
+      fragmentShader: GLSL_CTR_F,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uSun: { value: new THREE.Color(1, 1, 1) },
+        uAmb: { value: new THREE.Color(0.2, 0.22, 0.26) },
+        uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+      },
+    }),
+  );
+  m.frustumCulled = false;
+  m.renderOrder = 5;
+  m.visible = false;
+  R.scene.add(m);
+  tr.mesh = m;
+  c.ctr = tr;
+  return tr;
+}
+function contrailDispose(c) {
+  const tr = c.ctr;
+  if (!tr) return;
+  R.scene.remove(tr.mesh);
+  tr.mesh.geometry.dispose();
+  tr.mesh.material.dispose();
+  c.ctr = null;
+}
+// the node that carries the tips (the model's own, below finishModel's wrapper, so the tips are read in the model's frame)
+function ctrTipNode(model) {
+  const u = model.userData;
+  if (u.ctrTip === undefined) {
+    u.ctrTip = null;
+    model.traverse((n) => {
+      if (!u.ctrTip && n.userData && n.userData.wingtips) u.ctrTip = n;
+    });
+  }
+  return u.ctrTip;
+}
+// how strongly the tips condense now: the air's density and humidity, and the lift the wings make (the angle of attack)
+function contrailStrength(c, s, t, cfgL, model) {
+  if (
+    !ctrTipNode(model) ||
+    !s ||
+    s.ref !== "earth" ||
+    s.surface ||
+    !(cfgL && cfgL.key === "sc")
+  )
+    return 0;
+  const ex = s.extra || {};
+  if (!(ex.q > 1500) || ex.alpha == null) return 0;
+  const h = ex.alt != null ? ex.alt : vnorm(s.r) - BODIES.earth.R,
+    humid = CTR_HUMID[MV.md.cfg.runway] ?? 0.6;
+  const dens = 1 - smoothstep((h - 1.5) / 9),
+    lift = smoothstep((ex.alpha - 4) / 6),
+    q = smoothstep((ex.q - 1500) / 4000);
+  return humid * dens * lift * q;
+}
+// called every frame for a craft in the air; adds a sample at each tip while the trail forms, and draws what is left
+function updateContrails(c, s, t, cfgL, model) {
+  const k = contrailStrength(c, s, t, cfgL, model);
+  let tr = c.ctr;
+  if (!tr) {
+    if (k <= 0) return;
+    tr = contrailInit(c);
+  }
+  const jump = tr.lastT != null && Math.abs(t - tr.lastT) > 5;
+  if (jump) {
+    tr.n = 0;
+    tr.head = 0;
+  } // a leap in time: the old threads are long gone
+  bodyQuat("earth", t, _ctrQ);
+  const E = helio("earth", t).r,
+    O = R.O;
+  if (k > 0 && t !== tr.lastT && !(MV.rate > 30)) {
+    // a sample at each tip, Earth-fixed
+    if (tr.tipKey !== model) {
+      tr.tipNode = ctrTipNode(model);
+      tr.tipKey = model;
+    }
+    if (tr.tipNode) {
+      const i = tr.head;
+      _ctrC.copy(_ctrQ).invert();
+      for (let side = 0; side < 2; side++) {
+        const w = tr.tipNode.userData.wingtips[side];
+        _ctrV.set(w[0], w[1], w[2]);
+        tr.tipNode.localToWorld(_ctrV);
+        _ctrV.x += O[0] - E[0];
+        _ctrV.y += O[1] - E[1];
+        _ctrV.z += O[2] - E[2];
+        _ctrV.applyQuaternion(_ctrC);
+        const j = 3 * (2 * i + side);
+        tr.P[j] = _ctrV.x;
+        tr.P[j + 1] = _ctrV.y;
+        tr.P[j + 2] = _ctrV.z;
+      }
+      tr.T[i] = t;
+      tr.K[i] = k;
+      tr.head = (i + 1) % CTR_N;
+      tr.n = Math.min(tr.n + 1, CTR_N);
+    }
+  }
+  tr.lastT = t;
+  // the ribbons: the samples from the oldest alive to the newest, one strip per tip
+  const g = tr.mesh.geometry,
+    pos = g.attributes.position.array,
+    uv = g.attributes.aUV.array,
+    aa = g.attributes.aA.array;
+  const cam = R.camera.position;
+  let v = 0;
+  const sunD = vunit(vscale(E, -1));
+  tr.mesh.material.uniforms.uSunDir.value.set(sunD[0], sunD[1], sunD[2]);
+  tr.mesh.material.uniforms.uSun.value
+    .copy(R.sunLight.color)
+    .multiplyScalar(0.5);
+  tr.mesh.material.uniforms.uAmb.value
+    .copy(R.hemi.color)
+    .multiplyScalar(0.15 * R.hemi.intensity + 0.03); // (dim in the dark: the night fill is a cheat for the ground, not for threads of mist)
+  const pair = (x, y, z, w, a, m) => {
+    for (const sgn of [-1, 1]) {
+      const o = 3 * v;
+      pos[o] = x + _ctrS.x * w * sgn;
+      pos[o + 1] = y + _ctrS.y * w * sgn;
+      pos[o + 2] = z + _ctrS.z * w * sgn;
+      uv[2 * v] = m;
+      uv[2 * v + 1] = sgn;
+      aa[v] = a;
+      v++;
+    }
+  };
+  for (let side = 0; side < 2 && tr.n > 1; side++) {
+    let prevX = 0,
+      prevY = 0,
+      prevZ = 0,
+      first = true,
+      lastW = 0;
+    for (let m = 0; m < tr.n; m++) {
+      const i = (tr.head - tr.n + m + CTR_N) % CTR_N,
+        age = t - tr.T[i];
+      if (age < 0 || age > CTR_LIFE) continue;
+      const j = 3 * (2 * i + side);
+      _ctrV.set(tr.P[j], tr.P[j + 1], tr.P[j + 2]).applyQuaternion(_ctrQ);
+      const x = _ctrV.x + E[0] - O[0],
+        y = _ctrV.y + E[1] - O[1],
+        z = _ctrV.z + E[2] - O[2];
+      if (first) {
+        prevX = x;
+        prevY = y;
+        prevZ = z;
+      }
+      _ctrT.set(x - prevX, y - prevY, z - prevZ);
+      if (_ctrT.lengthSq() < 1e-12) _ctrT.set(0, 0, 1);
+      _ctrS
+        .set(cam.x - x, cam.y - y, cam.z - z)
+        .cross(_ctrT)
+        .normalize(); // across the thread, facing the camera
+      const w = (0.45 + 0.5 * age) * 0.001 * (0.6 + 0.4 * tr.K[i]); // m → km: a thread half a metre wide at the tip, a few metres wide as it ages
+      const a =
+        tr.K[i] *
+        0.55 *
+        (1 - smoothstep((age - 4) / (CTR_LIFE - 4))) *
+        Math.min(age / 0.3 + 0.2, 1);
+      if (first) {
+        pair(x, y, z, w, 0, m);
+        first = false;
+      } // (a clear pair at each end: the strip joins the other with nothing drawn between)
+      pair(x, y, z, w, a, m);
+      lastW = w;
+      prevX = x;
+      prevY = y;
+      prevZ = z;
+    }
+    if (!first) pair(prevX, prevY, prevZ, lastW, 0, 0);
+  }
+  g.attributes.position.needsUpdate = true;
+  g.attributes.aUV.needsUpdate = true;
+  g.attributes.aA.needsUpdate = true;
+  g.setDrawRange(0, Math.max(0, 6 * (v / 2 - 1)));
+  tr.mesh.visible = v >= 4;
+}
+
 // ==== 50_camera.js
 // ============================================================================
 // Camera: orbit / chase / look-at / ground observer / top-down, with film
@@ -16557,6 +20663,10 @@ function targetRadius(id) {
   }
   return 0;
 }
+// the director runs the camera: 'auto', or 'cine' (app/51_cine.js) which is the director with the launch cut as a film
+function directed() {
+  return CAM.mode === "auto" || CAM.mode === "cine";
+}
 function targetCraft() {
   return CAM.target.startsWith("obj:") ? craftById(CAM.target.slice(4)) : null;
 }
@@ -16577,27 +20687,28 @@ function setTarget(id, opts = {}) {
     CAM.trans = {
       fromId: prevId,
       fromP: from,
-      t0: performance.now(),
+      t0: clockMs(),
       dur: 1100,
       distFrom: CAM.dist,
       distTo: dist,
     };
   CAM.dist = dist;
   if (CAM.mode === "ground" && id.startsWith("body:")) setMode("orbit");
-  if (CAM.mode === "auto" && !opts.keepMode)
+  if (directed() && !opts.keepMode)
     setMode(id.startsWith("body:") ? "orbit" : "chase");
   syncCamUI();
 }
 function setMode(m) {
-  const wasAuto = CAM.mode === "auto";
+  const wasAuto = directed();
   CAM.mode = m;
   $("#lookWrap").hidden = m !== "lookat";
-  if (m === "auto") {
+  if (m !== "cine") CINE.timeK = 1;
+  if (m === "auto" || m === "cine") {
     DIR.key = "";
     DIR.lastT = null;
     DIR.blend = null;
   }
-  if (wasAuto && m !== "auto" && DIR.prm) {
+  if (wasAuto && !directed() && DIR.prm) {
     CAM.dist = DIR.prm.dist;
     CAM.az = DIR.prm.az;
     CAM.el = DIR.prm.el;
@@ -16620,6 +20731,27 @@ function setMode(m) {
   applyLens();
   syncCamUI();
 }
+// The point the camera looks at sits at the middle of the part of the screen the panels leave free, not of the whole
+// screen: on a tall screen the panels fill the bottom third, and the craft would otherwise sit just above them. The
+// frustum is shifted (an off-centre projection), so nothing else changes.
+let VSHIFT = 0;
+function applyViewShift() {
+  const W = R.width,
+    H = R.height,
+    b = screenBand(),
+    d = Math.round(H / 2 - (b.top + b.bot) / 2);
+  if (Math.abs(d) < 4) {
+    if (VSHIFT) {
+      R.camera.clearViewOffset();
+      VSHIFT = 0;
+    }
+    return;
+  }
+  if (d !== VSHIFT) {
+    R.camera.setViewOffset(W, H, 0, d, W, H);
+    VSHIFT = d;
+  }
+}
 function frameRect() {
   const W = R.width,
     Hh = R.height,
@@ -16638,6 +20770,7 @@ function applyLens() {
   const tanV = (tanH * R.height) / fr.w;
   R.camera.fov = 2 * Math.atan(tanV) * RAD;
   R.camera.aspect = R.width / R.height;
+  applyViewShift();
   R.camera.updateProjectionMatrix();
   R.pxPerRad = R.height / (2 * tanV);
   const lb = (id, css) => {
@@ -16672,14 +20805,17 @@ function groundSite(t) {
   const P = targetPos(CAM.target, t) || helio("earth", t).r;
   const near = (b, d) => vnorm(vsub(P, helio(b, t).r)) < d;
   const cfg = md.cfg;
-  const off = (body, lat, lon, elev, dE, dN) => {
-    const Rb = surfaceRadius(body);
-    return {
-      body,
-      lat: lat + (dN / Rb) * RAD,
-      lon: lon + (dE / (Rb * Math.cos(lat * DEG))) * RAD,
-      alt: (elev || 0) + 0.0018,
-    };
+  // flat: the site stands on the pad's flat ground (app/46_pads.js), which lies above the sphere by d²/2R out at d from
+  // the pad — 2.7 m at the launch camera's 5.9 km, so a camera at its height over the sphere would look up from under it
+  // (where the real ground is drawn, app/43_terrain.js, the camera stands on it instead)
+  const off = (body, lat, lon, elev, dE, dN, flat) => {
+    const Rb = surfaceRadius(body),
+      la = lat + (dN / Rb) * RAD,
+      lo = lon + (dE / (Rb * Math.cos(lat * DEG))) * RAD;
+    let alt = (elev || 0) + (flat ? (dE * dE + dN * dN) / (2 * Rb) : 0);
+    const th = body === "earth" ? terrainHeightAt(la, lo) : null;
+    if (th != null) alt = Math.max(alt, th);
+    return { body, lat: la, lon: lo, alt: alt + 0.0018 };
   };
   if (near("moon", 30000)) {
     const sp =
@@ -16720,7 +20856,7 @@ function groundSite(t) {
           return off("earth", sp.lat, sp.lon, 0, -4, -3);
       }
     }
-    return off("earth", S.lat, S.lon, 0, -2.2, -5.5);
+    return off("earth", S.lat, S.lon, 0, -2.2, -5.5, true);
   }
   return null;
 }
@@ -16748,7 +20884,7 @@ function keepAboveGround(P, off, t) {
 // the top on phones. The card's place is remembered after it hides, so the framing holds steady through liftoff.
 const BAND = { at: 0, W: 0, H: 0, v: null, card: null, cardKey: "" };
 function screenBand() {
-  const now = performance.now(),
+  const now = clockMs(),
     W = R.width,
     H = R.height;
   if (BAND.v && now - BAND.at < 500 && BAND.W === W && BAND.H === H)
@@ -16773,10 +20909,18 @@ function screenBand() {
     card = null;
   if (!clean) {
     top = Math.max(top, 84); // the top bar (48 px) and the propulsion pill under it (shown from liftoff on)
-    for (const sel of ["#bottom", "#minimap"]) {
+    for (const sel of ["#bottom", "#minimap", "#left", "#right"]) {
       const r = rectOf(sel);
       if (r) bot = Math.min(bot, r.top);
-    }
+    } // (the panels only on a tall screen, where they sit under the view)
+    {
+      const cap = $("#caption");
+      if (cap && !cap.classList.contains("fade")) {
+        const r = rectOf("#caption");
+        if (r && r.top > top + 0.4 * (bot - top))
+          bot = Math.min(bot, r.top - 6);
+      }
+    } // the event caption, so the craft is framed above it
     const key = W + "x" + H;
     card = rectOf("#countdown");
     if (card) {
@@ -16812,9 +20956,9 @@ function screenBand() {
 // exactly between screen rows yT and yB, for a chase camera at elevation el looking at the aim point (pinhole projection)
 function fitColumn(zTop, el, yT, yB) {
   const k = R.pxPerRad,
-    Hc = R.height / 2,
+    Hc = R.height / 2 - VSHIFT,
     ce = Math.cos(el),
-    se = Math.sin(el);
+    se = Math.sin(el); // (the optical centre, shifted on a tall screen)
   const p1 = Hc - yT,
     p2 = Hc - yB,
     q1 = ce * k + p1 * se,
@@ -16851,12 +20995,40 @@ function poseFor(mode, prm, P, t) {
       ),
       vscale(u3, Math.sin(prm.el)),
     );
-    return {
-      pos: keepAboveGround(P, vscale(D, -dist), t),
-      up: u3,
-      look: vsub(PL, P),
-      center: false,
-    };
+    const pos = keepAboveGround(P, vscale(D, -dist), t);
+    if (prm.centreK > 0) {
+      // turned toward the craft (the director's look-at shot dragged past its frame): between the body and the craft
+      const Lc = vunit(vlerp(Ld, vunit(vscale(pos, -1)), prm.centreK));
+      return {
+        pos,
+        up: u3,
+        look: vadd(pos, vscale(Lc, Math.max(dist, 1e-6))),
+        center: false,
+      };
+    }
+    return { pos, up: u3, look: vsub(PL, P), center: false };
+  }
+  if (mode === "padcam") {
+    // a camera on the ground near the launch pad (prm.spot: km east, north and up from the site), looking at the target
+    const S = MV.md && LAUNCH_SITES[MV.md.cfg.site];
+    if (S && prm.spot) {
+      const [dE, dN, h] = prm.spot,
+        Rb = surfaceRadius("earth"),
+        la = S.lat + (dN / Rb) * RAD,
+        lo = S.lon + (dE / (Rb * Math.cos(S.lat * DEG))) * RAD;
+      let alt = (dE * dE + dN * dN) / (2 * Rb);
+      const th = terrainHeightAt(la, lo);
+      if (th != null) alt = Math.max(alt, th); // (on the pad's flat ground, or the real ground where it is drawn)
+      const site = sitePosEcl("earth", la, lo, alt + h, t),
+        pos = keepAboveGround(P, vsub(vadd(helio("earth", t).r, site), P), t);
+      return {
+        pos,
+        up: localFrame("earth", site, t).up,
+        look: prm.aim || [0, 0, 0],
+        center: false,
+      };
+    }
+    mode = "chase";
   }
   if (mode === "site") {
     // a camera on the ground by the launch site, looking up at the target
@@ -16877,8 +21049,42 @@ function poseFor(mode, prm, P, t) {
     const fc = prm.from && craftById(prm.from.slice(4));
     if (fc && fc.P && fc.s) {
       const F = lvlh(fc.rD || fc.s.r, fc.vD || fc.s.v),
-        off = prm.off || [0, 0, 0],
-        pos = vadd(vsub(fc.P, P), fromLvlh(F, vscale(off, 0.001)));
+        off = prm.off || [0, 0, 0];
+      let pos = vadd(vsub(fc.P, P), fromLvlh(F, vscale(off, 0.001)));
+      if (
+        (prm.fromAz || prm.fromEl || (prm.zoomK && prm.zoomK !== 1)) &&
+        c &&
+        c.s
+      ) {
+        // dragged or zoomed: the camera leaves the window and goes round the craft, from where it was
+        const rr = c.rD || c.s.r,
+          vv0 = c.vD || c.s.v,
+          up = vunit(rr);
+        let vh = vsub(vv0, vscale(up, vdot(vv0, up)));
+        if (vnorm(vh) < 1e-6) vh = vperp(up);
+        const e1 = vunit(vh),
+          e3 = up,
+          e2 = vcross(e3, e1);
+        const d = vnorm(pos) * (prm.zoomK || 1),
+          az0 = Math.atan2(vdot(pos, e2), vdot(pos, e1)),
+          el0 = Math.asin(clamp(vdot(pos, e3) / d, -1, 1)),
+          az = az0 + prm.fromAz,
+          el = clamp(el0 + prm.fromEl, -1.5, 1.5);
+        pos = vadd(
+          vadd(
+            vscale(e1, d * Math.cos(el) * Math.cos(az)),
+            vscale(e2, d * Math.cos(el) * Math.sin(az)),
+          ),
+          vscale(e3, d * Math.sin(el)),
+        );
+        return {
+          pos,
+          up: e3,
+          look: [0, 0, 0],
+          center: true,
+          basis: [e1, e2, e3],
+        };
+      }
       return {
         pos,
         up: Math.abs(vdot(vunit(pos), F.z)) > 0.85 ? F.x : F.z,
@@ -17323,7 +21529,7 @@ function directorUpdate(t, realDt) {
   const md = MV.md;
   const c = activeCraft(t);
   if (!c) return;
-  const now = performance.now();
+  const now = clockMs();
   const jump =
     DIR.lastT == null ||
     Math.abs(t - DIR.lastT) >
@@ -17336,10 +21542,12 @@ function directorUpdate(t, realDt) {
       syncCamUI();
     } else setTarget("obj:" + c.o.id, { force: true, keepMode: true });
   }
-  const shot = directorShot(c, t);
+  const shot = (CAM.mode === "cine" && cineShot(c, t)) || directorShot(c, t);
   if (!shot) return;
+  let cut = false;
   if (shot.key !== DIR.key) {
-    if (!jump && DIR.key)
+    cut = !!shot.cut; // (a cut: no blend from the last shot, the lens set at once)
+    if (!jump && DIR.key && !cut)
       DIR.blend = {
         pos: R.camera.position.clone(),
         quat: R.camera.quaternion.clone(),
@@ -17374,9 +21582,16 @@ function directorUpdate(t, realDt) {
       DIR.aimH == null || jump
         ? shot.aimH
         : DIR.aimH + (shot.aimH - DIR.aimH) * Math.min(1, realDt * 1.5);
-  const aim =
-    DIR.aimH != null && c.s ? vscale(vunit(c.rD || c.s.r), DIR.aimH) : null;
-  let az, el;
+  const aim = shot.aimP
+    ? shot.aimP // (a point given outright: the middle of a vehicle as drawn, app/51_cine.js)
+    : shot.aimV && c.vD && vnorm(c.vD) > 1e-6
+      ? vscale(vunit(c.vD), shot.aimV) // (up the vehicle's axis, near enough its velocity in flight: a cinematic shot of a long stack)
+      : DIR.aimH != null && c.s
+        ? vscale(vunit(c.rD || c.s.r), DIR.aimH)
+        : null;
+  let az,
+    el,
+    centreK = 0;
   if (shot.mode === "lookat") {
     // keep the craft inside the middle of the film frame, whatever the lens and screen shape
     const fr = frameRect(),
@@ -17384,14 +21599,13 @@ function directorUpdate(t, realDt) {
       tV = (tH * fr.h) / fr.w;
     const aL = Math.atan(0.42 * tH),
       eL = Math.atan(0.5 * tV);
-    DIR.offAz = clamp(DIR.offAz, -aL - shot.az, aL - shot.az);
-    DIR.offEl = clamp(DIR.offEl, -eL - shot.el, eL - shot.el);
-    az = clamp(
-      shot.az + DIR.offAz + Math.sin(drift) * Math.min(0.05, aL * 0.3),
-      -aL,
-      aL,
-    );
-    el = clamp(shot.el + DIR.offEl, -eL, eL);
+    // Dragged past the edge of that frame the camera turns from the body to the craft (centreK), so the craft can be looked
+    // at from every side; back inside it the body comes back into view
+    az = shot.az + DIR.offAz + Math.sin(drift) * Math.min(0.05, aL * 0.3);
+    el = clamp(shot.el + DIR.offEl, -1.5, 1.5);
+    const outA = Math.max(Math.abs(az) - aL, 0) / 0.25,
+      outE = Math.max(Math.abs(el) - eL, 0) / 0.25;
+    centreK = smoothstep(Math.max(outA, outE));
   } else {
     az = shot.az + DIR.offAz + drift;
     el = clamp(shot.el + DIR.offEl, -1.5, 1.5);
@@ -17401,20 +21615,26 @@ function directorUpdate(t, realDt) {
     look: shot.look,
     from: shot.from,
     off: shot.off,
+    spot: shot.spot,
     az,
     el,
     dist: DIR.dist,
     aim,
+    centreK,
+    fromAz: shot.mode === "from" ? DIR.offAz : 0,
+    fromEl: shot.mode === "from" ? DIR.offEl : 0,
+    zoomK: DIR.zoomK,
   };
   DIR.shot = shot;
   const lens = DIR.lensUser || shot.lens;
   if (Math.abs(CAM.lens - lens) > 0.5) {
-    CAM.lens = jump
-      ? lens
-      : Math.exp(
-          Math.log(CAM.lens) +
-            (Math.log(lens) - Math.log(CAM.lens)) * Math.min(1, realDt * 2),
-        );
+    CAM.lens =
+      jump || cut
+        ? lens
+        : Math.exp(
+            Math.log(CAM.lens) +
+              (Math.log(lens) - Math.log(CAM.lens)) * Math.min(1, realDt * 2),
+          );
     applyLens();
     syncCamUI();
   }
@@ -17422,13 +21642,18 @@ function directorUpdate(t, realDt) {
 }
 function updateCamera(t, realDt) {
   const cam = R.camera;
-  if (CAM.mode === "auto" && MV.md) directorUpdate(t, realDt);
+  {
+    const d0 = VSHIFT;
+    applyViewShift();
+    if (VSHIFT !== d0) cam.updateProjectionMatrix();
+  }
+  if (directed() && MV.md) directorUpdate(t, realDt);
   let P = targetPos(CAM.target, t);
   if (!P) P = targetPos("obj:ship", t) || helio("earth", t).r; // target not in flight yet (e.g. a lander still docked): follow the ship meanwhile
   // transition between targets
   let dist = CAM.dist;
   if (CAM.trans) {
-    const f = clamp((performance.now() - CAM.trans.t0) / CAM.trans.dur, 0, 1);
+    const f = clamp((clockMs() - CAM.trans.t0) / CAM.trans.dur, 0, 1);
     const e = f * f * (3 - 2 * f);
     const from = targetPos(CAM.trans.fromId, t) || CAM.trans.fromP;
     P = vlerp(from, P, e);
@@ -17478,11 +21703,11 @@ function updateCamera(t, realDt) {
   }
   CAM.groundInfo = null;
   R.O = P;
-  if (CAM.mode === "auto" && MV.md && DIR.prm) {
+  if (directed() && MV.md && DIR.prm) {
     const pose = poseFor(DIR.prm.mode, DIR.prm, P, t);
     setPose(pose);
     if (DIR.blend) {
-      const f = smoothstep((performance.now() - DIR.blend.t0) / DIR.blend.dur);
+      const f = smoothstep((clockMs() - DIR.blend.t0) / DIR.blend.dur);
       if (f >= 1) DIR.blend = null;
       else {
         const pT = cam.position.clone(),
@@ -17504,14 +21729,23 @@ function updateCamera(t, realDt) {
         } else cam.quaternion.slerpQuaternions(DIR.blend.quat, qT, f);
       }
     }
+    const sk = DIR.shot && DIR.shot.shake,
+      sc = sk && activeCraft(t); // a cinematic shot's camera shaking as a camera would (app/51_cine.js)
+    if (sc) {
+      const [ax, ay] = cineShake(sk, sc, t, cam.position.length());
+      cam.rotateX(ax);
+      cam.rotateY(ay);
+    }
     CAM.camDist =
-      DIR.prm.mode === "site" ? cam.position.length() : DIR.prm.dist;
+      DIR.prm.mode === "site" || DIR.prm.mode === "padcam"
+        ? cam.position.length()
+        : DIR.prm.dist;
     return;
   }
   const minD = rT > 0 ? rT * 1.003 + 0.002 : 0.004;
   dist = Math.max(dist, minD);
   if (!CAM.trans) CAM.dist = Math.max(CAM.dist, minD);
-  const mode = CAM.mode === "auto" ? "chase" : CAM.mode;
+  const mode = directed() ? "chase" : CAM.mode;
   setPose(
     poseFor(mode, { az: CAM.az, el: CAM.el, dist, look: CAM.look }, P, t),
   );
@@ -17555,8 +21789,10 @@ function initCameraInput() {
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       const k = pinch0.d / Math.max(d, 1);
       if (CAM.mode === "ground") CAM.lens = clamp(pinch0.lens / k, 8, 3200);
-      else if (CAM.mode === "auto") DIR.zoomK = clamp(pinch0.zk * k, 0.05, 2e4);
-      else CAM.dist = clamp(pinch0.dist * k, 0.004, 5e10);
+      else if (directed()) {
+        if (CAM.mode === "cine") setMode("auto");
+        DIR.zoomK = clamp(pinch0.zk * k, 0.05, 2e4);
+      } else CAM.dist = clamp(pinch0.dist * k, 0.004, 5e10);
       CAM.trans = null;
       applyLens();
       syncCamUI();
@@ -17577,6 +21813,7 @@ function initCameraInput() {
       );
       return;
     }
+    if (CAM.mode === "cine") setMode("auto"); // (taking the camera ends the film; the director carries on from here)
     if (CAM.mode === "auto") {
       DIR.offAz -= dx * 0.006;
       DIR.offEl = clamp(DIR.offEl + dy * 0.006, -1.5, 1.5);
@@ -17604,6 +21841,7 @@ function initCameraInput() {
         syncCamUI();
         return;
       }
+      if (CAM.mode === "cine") setMode("auto");
       if (CAM.mode === "auto") {
         DIR.zoomK = clamp(DIR.zoomK * Math.exp(dy * 0.0012), 0.05, 2e4);
         return;
@@ -17648,6 +21886,355 @@ function syncCamUI() {
   }
   ln.value = lv;
   $("#lookWrap").hidden = CAM.mode !== "lookat";
+}
+
+// ==== 51_cine.js
+// ============================================================================
+// Cinematic launch: a camera mode ('cine') that cuts the launch like a film, from the ignition to the first staging, then
+// hands over to the director (app/50_camera.js). The shots are a pure function of the mission time, from the flight's
+// own events (the ignition, the liftoff, max-Q, the first staging), so they fit every vehicle, and scrubbing back to the
+// launch plays them again:
+//   1. base     — before liftoff: a camera low on the ground near the pad, a wide lens looking up the vehicle, pushing in
+//   2. rise     — the first seconds: slow motion, a ground camera out past the blast's cloud as the vehicle climbs out of it
+//   3. track    — a long lens a few kilometres out on the ground, following it into the sky
+//   4. tail     — a camera below the vehicle looking up along its plume, then round to its side
+//   5. staging  — a close cut on the first separation, in slow motion
+// The ground shots stand where the pad's towers do not block them (the pad's block list, as the director's pad shot).
+// The camera shakes as a camera would (cineShake below); the clock slows (CINE.timeK, applied in app/90_main.js) for
+// the slow-motion shots. Dragging the view, or picking another mode, ends it.
+// ============================================================================
+const CINE = { timeK: 1, osc: null };
+// the times the shots are cut on, from the mission's events (cached per mission)
+function cineTimes(md) {
+  if (md.cineT) return md.cineT;
+  const ev = (re) => md.events.find((e) => re.test(e.name)),
+    t0 = md.M.t0;
+  const ign = ev(/^Ignition sequence start/),
+    mq = md.events.find((e) => e.kind === "maxq"),
+    st = md.events.find((e) => e.kind === "staging" && e.t > t0);
+  const tS = st ? st.t : t0 + 150,
+    tQ = mq ? mq.t : t0 + 60;
+  const tTail = t0 + 28,
+    tSide = Math.max(tTail + 12, Math.min(tQ + 20, tS - 10)),
+    tSep = tS - 1.5;
+  return (md.cineT = {
+    tIgn: ign ? ign.t : t0 - 7,
+    t0,
+    tTail,
+    tSide,
+    tSep,
+    tS,
+    tEnd: tS + 6,
+  });
+}
+// The ground cameras stand east or west of the pad, on the side nearer the Sun: the flame trenches throw the cloud north
+// and south (app/48_padcloud.js), and a camera across them would watch the vehicle vanish into it. A long lens from out
+// there sees a broad wedge behind and before the pad, so a side with a tower within 40° of it (ELA-3's water tower) gives
+// way to the other
+function cineSide(sunAz) {
+  const blk = (MV.pad && MV.pad.userData.block) || [],
+    sides = Math.cos(sunAz) >= 0 ? [0, Math.PI] : [Math.PI, 0];
+  return (
+    sides.find(
+      (c) => !blk.some(([b]) => Math.abs(wrapPi(c - b * DEG)) < 40 * DEG),
+    ) ?? sides[0]
+  );
+}
+// a bearing (chase basis: from east toward north, rad) near `want` that no tower blocks
+function cineClear(want) {
+  let a = want;
+  const blk = MV.pad && MV.pad.userData.block;
+  if (blk)
+    for (let k = 0; k < 4; k++) {
+      let moved = false;
+      for (const [b, w] of blk) {
+        const d = wrapPi(a - b * DEG);
+        if (Math.abs(d) < w * DEG - 1e-9) {
+          a = b * DEG + (d < 0 ? -w : w) * DEG;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+  return a;
+}
+// What a shot frames: the vehicle as it is drawn now (its model's bounds, along its axis), not the launcher's nominal
+// height from its base point — a Shuttle stack is as wide as it is tall, and a stage's base point is its engines.
+// aim: its middle, relative to the craft's position (km, the scene's axes); len: its size (km)
+const _cv = new THREE.Vector3(),
+  _cp = new THREE.Vector3();
+function cineSubject(c, Lnom) {
+  const m = c.cur,
+    ud = m && m.userData;
+  if (!m || !ud.bbY || !c.node) return { aim: null, len: Lnom };
+  const yc = (c.yOff || 0) + (ud.bbY[0] + ud.bbY[1]) / 2; // (the model's own origin sits c.yOff up the node)
+  c.node.localToWorld(_cv.set(0, yc, 0));
+  c.node.getWorldPosition(_cp);
+  const lenM = Math.max(
+    ud.bbY[1] - ud.bbY[0],
+    ud.bbox ? Math.max(ud.bbox.w, ud.bbox.d) : 0,
+  );
+  return {
+    aim: [_cv.x - _cp.x, _cv.y - _cp.y, _cv.z - _cp.z],
+    len: Math.max(lenM * 0.001, 0.005),
+  };
+}
+// pixels per radian for a lens (mm), and the free rows' height (the screen the HUD leaves: the director's band, which the
+// view is already centred in)
+function cinePxPerRad(lens) {
+  return (lens * frameRect().w) / 36;
+}
+function cineBandH() {
+  const B = screenBand();
+  return Math.max(B.bot - B.top, 80);
+}
+// the lens (mm) that makes a size of h km at a distance of d km fill a fraction f of the free rows
+function cineFitLens(h, d, f) {
+  return clamp(
+    (36 * f * cineBandH()) / ((frameRect().w * h) / Math.max(d, 1e-6)),
+    14,
+    1200,
+  );
+}
+// the distance (km) at which a size of h km fills a fraction f of the free rows through a lens (mm)
+function cineFitDist(h, lens, f) {
+  return (h * cinePxPerRad(lens)) / (f * cineBandH());
+}
+// The shot at time t for craft c (the ship), or null outside the launch (the director's own shot then). L: the launch
+// stack's height (km); sunAz: the bearing toward the Sun, so the ground cameras see the lit side
+function cineShot(c, t) {
+  const md = MV.md;
+  if (!md || c.o.id !== "ship" || !md.L || !LAUNCH_SITES[md.cfg.site] || !c.s) {
+    CINE.timeK = 1;
+    return null;
+  }
+  const L = Math.max(md.L.height || 50, 10) * 0.001,
+    sunAz = (() => {
+      const p = poseFor("chase", { az: 0, el: 0, dist: 1 }, c.P, t);
+      const [e1, e2] = p.basis;
+      const sd = vunit(vscale(c.P, -1));
+      return Math.atan2(vdot(sd, e2), vdot(sd, e1));
+    })();
+  const T = cineTimes(md);
+  if (t < T.tIgn - 8 || t >= T.tEnd) {
+    CINE.timeK = 1;
+    return null;
+  }
+  const s = c.s,
+    T0 = T.t0,
+    up = s ? vunit(c.rD || s.r) : null,
+    V = cineSubject(c, L),
+    Lv = V.len; // (Lv: the vehicle as drawn now)
+  const slow = (a, b, k) => {
+    const ramp = 0.6,
+      f = Math.min(smoothstep((t - a) / ramp), smoothstep((b - t) / ramp));
+    return 1 + (k - 1) * f;
+  }; // (eased in and out over 0.6 s of mission time)
+  let shot;
+  if (t < T0) {
+    // 1. base: low near the pad, pushing in as the engines light
+    const az = cineClear(cineSide(sunAz) + 22 * DEG),
+      d = Math.max(L * 1.5, 0.12),
+      f = smoothstep((t - (T.tIgn - 8)) / (T0 - T.tIgn + 8));
+    shot = {
+      key: "cine-base",
+      mode: "padcam",
+      spot: [d * Math.cos(az), d * Math.sin(az), 0.0015],
+      aimP: V.aim,
+      lens: cineFitLens(Lv, d, 0.82 + 0.1 * f),
+      shake: "ground",
+      cut: true,
+      label: "Ignition",
+    }; // (filling the frame, pushing in a little)
+  } else if (t < T0 + 7) {
+    // 2. rise: slow motion, the vehicle climbing past a camera by the trench
+    // (out past the cloud the blast throws round the pad, which would hide the vehicle from nearer)
+    const az = cineClear(cineSide(sunAz) - 15 * DEG),
+      d = Math.max(L * 8, 0.5),
+      h =
+        s && up ? Math.max(vnorm(c.rD || s.r) - surfaceRadius("earth"), 0) : 0;
+    shot = {
+      key: "cine-rise",
+      mode: "padcam",
+      spot: [d * Math.cos(az), d * Math.sin(az), 0.0012],
+      aimP: V.aim,
+      lens: cineFitLens(Lv, Math.hypot(d, h + Lv * 0.5), 0.7),
+      shake: "ground",
+      slow: slow(T0 - 0.3, T0 + 5, 0.3),
+      cut: true,
+      label: "Liftoff",
+    };
+  } else if (t < T.tTail) {
+    // 3. track: a long lens on the ground, following it into the sky
+    const az = cineClear(cineSide(sunAz) + 35 * DEG),
+      d = 2.6,
+      h = s ? Math.max(vnorm(c.rD || s.r) - surfaceRadius("earth"), 0) : 0;
+    shot = {
+      key: "cine-track",
+      mode: "padcam",
+      spot: [d * Math.cos(az), d * Math.sin(az), 0.002],
+      aimP: V.aim,
+      lens: cineFitLens(Lv, Math.hypot(d, h), 0.5),
+      shake: "ground",
+      cut: true,
+      label: "Climbing away",
+    };
+  } else if (t < T.tSide) {
+    // 4. tail: below the vehicle, looking up along the plume
+    shot = {
+      key: "cine-tail",
+      mode: "chase",
+      az: sunAz + 40 * DEG,
+      el: -38 * DEG,
+      dist: cineFitDist(Lv, 20, 0.72),
+      aimP: V.aim,
+      lens: 20,
+      shake: "air",
+      cut: true,
+      label: "Ascent",
+    };
+  } else if (t < T.tSep) {
+    // … round to its side
+    shot = {
+      key: "cine-side",
+      mode: "chase",
+      az: sunAz + 60 * DEG,
+      el: 4 * DEG,
+      dist: cineFitDist(Lv, 30, 0.6),
+      aimP: V.aim,
+      lens: 30,
+      shake: "air",
+      blend: 3500,
+      label: "Ascent",
+    };
+  } else {
+    // 5. staging: a close cut, in slow motion
+    shot = {
+      key: "cine-sep",
+      mode: "chase",
+      az: sunAz + 95 * DEG,
+      el: 8 * DEG,
+      dist: cineFitDist(L * 1.1, 30, 0.75),
+      aimP: V.aim,
+      lens: 30,
+      shake: "air",
+      slow: slow(T.tS - 0.8, T.tS + 3.5, 0.3),
+      cut: true,
+      label: "Staging",
+    };
+  }
+  CINE.timeK = shot.slow || 1;
+  return shot;
+}
+// ---------------- the shake ----------------
+// A camera shakes because something pushes it, and it answers as the mass on a spring it is. On the ground the push is
+// the launch's noise: it leaves the engines at the speed of sound, so it reaches a camera half a kilometre out a second
+// and a half after the ignition, and its pressure goes as the thrust that made it over the distance it has come. The
+// camera on its tripod rings at its own frequencies — the tripod's (about 9 Hz, well damped) and the ground's (about
+// 3 Hz) — driven by that noise, so a blow sets it swinging and dying away rather than jittering at random. In the air
+// (a chase camera beside the vehicle) there is no engine noise to carry it, only the buffeting of the air, which grows
+// with the dynamic pressure and is gone above the atmosphere: slower, about 2 Hz. The oscillators run on mission time,
+// so in slow motion the shake is slowed too, like a high-speed film, and the noise is seeded, so a scene shakes the
+// same way each time it is played.
+const CINE_H = 1 / 240; // s of mission time per oscillator step
+const CINE_MODES = {
+  ground: [
+    [9, 0.35, 0.65],
+    [3, 0.5, 0.35],
+  ],
+  air: [[2.1, 0.45, 1]],
+}; // [Hz, damping ratio, share]
+function cineNoise(i) {
+  // a standard normal, from the step's index (two hashed uniforms, Box–Muller)
+  const u = (x) => {
+    let h = Math.imul(x ^ 0x9e3779b9, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return ((h >>> 0) + 0.5) / 4294967296;
+  };
+  return Math.sqrt(-2 * Math.log(u(2 * i + 1))) * Math.cos(TAU * u(2 * i + 7));
+}
+// the oscillators' state for one shake kind: two axes, a [x, v] per mode; rms: each mode's output RMS for unit drive
+function cineOsc(kind) {
+  const modes = CINE_MODES[kind],
+    st = {
+      kind,
+      modes,
+      x: modes.map(() => [
+        [0, 0],
+        [0, 0],
+      ]),
+      rms: [],
+    };
+  if (cineOsc[kind]) {
+    st.rms = cineOsc[kind];
+    return st;
+  } // (calibrated once)
+  for (const [f, z] of modes) {
+    // calibrate: drive it with unit noise long enough to settle, measure what comes out
+    const w = TAU * f;
+    let x = 0,
+      v = 0,
+      ss = 0,
+      n = 0;
+    for (let i = 0; i < 24000; i++) {
+      const a = w * w * (cineNoise(i) - x) - 2 * z * w * v;
+      v += a * CINE_H;
+      x += v * CINE_H;
+      if (i > 4000) {
+        ss += x * x;
+        n++;
+      }
+    }
+    st.rms.push(Math.sqrt(ss / n));
+  }
+  cineOsc[kind] = st.rms;
+  return st;
+}
+// the amplitude (rad, RMS) of the push at time t for the camera dKm from the vehicle: the thrust when the sound now
+// arriving left it, falling off with the distance; or the buffeting with the dynamic pressure
+function cineDrive(kind, c, t, dKm) {
+  if (kind === "air") {
+    const q = (c.s && c.s.extra && c.s.extra.q) || 0;
+    return Math.min(0.0016, (0.0016 * q) / 35000);
+  } // (q in Pa; about 35 kPa at max-Q)
+  const tr = t - (dKm * 1000) / 343,
+    s = craftState(c, tr),
+    T = (s && s.T > 0 ? s.T : 0) / 1e6; // MN, when the sound left
+  return Math.min(0.008, (6e-5 * T) / Math.max(dKm, 0.05));
+}
+// the shake at time t (rotations about the camera's own x and y, rad), stepping the oscillators on from where they were;
+// a jump in time (scrubbing, a cut to another kind) starts them from rest
+function cineShake(kind, c, t, dKm) {
+  let st = CINE.osc;
+  if (!st || st.kind !== kind || !(t >= st.t) || t - st.t > 1) {
+    st = CINE.osc = cineOsc(kind);
+    st.t = t;
+    st.i = Math.floor(t / CINE_H);
+  }
+  const A = cineDrive(kind, c, t, dKm);
+  for (let i = st.i + 1; i * CINE_H <= t; i++) {
+    st.modes.forEach(([f, z], k) => {
+      const w = TAU * f;
+      for (let ax = 0; ax < 2; ax++) {
+        const X = st.x[k][ax],
+          a =
+            w * w * (cineNoise(i * 4 + ax * 2 + k * 97) - X[0]) -
+            2 * z * w * X[1];
+        X[1] += a * CINE_H;
+        X[0] += X[1] * CINE_H;
+      }
+    });
+    st.i = i;
+  }
+  st.t = t;
+  const out = [0, 0];
+  st.modes.forEach(([, , share], k) => {
+    for (let ax = 0; ax < 2; ax++)
+      out[ax] += (share * st.x[k][ax][0]) / st.rms[k];
+  });
+  return [out[0] * A, out[1] * A * 0.8]; // (a camera on a tripod pitches a little more than it yaws)
 }
 
 // ==== 60_telemetry.js
@@ -19083,7 +23670,21 @@ function buildInfoPanel() {
     );
     add("Launch azimuth", a.az.toFixed(1) + "°");
   }
-  if (M.summary.design)
+  if (M.summary.halo) {
+    const hd = M.summary.design || {};
+    add(
+      "Transfer to L2",
+      `the stable manifold of the halo · perigee ${fx(hd.perigeeKm, 0)} km · C3 ${hd.C3.toFixed(2)} km²/s²`,
+    );
+    add(
+      "Halo orbit",
+      `${fDist(M.summary.halo.az)} out of the ecliptic · period ${fx(M.summary.halo.periodDays, 0)} days`,
+    );
+    add(
+      "Station-keeping",
+      `${M.summary.halo.dvSK.length} burns · ${M.summary.halo.dvTotal.toFixed(1)} m/s in all`,
+    );
+  } else if (M.summary.design && M.summary.design.vinfDep != null)
     add(
       "Departure C3 · v∞",
       `${M.summary.design.C3.toFixed(2)} km²/s² · ${M.summary.design.vinfDep.toFixed(2)} km/s`,
@@ -19382,11 +23983,11 @@ function showCaption(e) {
   d = sentences.slice(0, 2).join(" ");
   el.querySelector(".cap-desc").textContent = d;
   el.classList.remove("fade");
-  CAP.until = performance.now() + clamp(3500 + d.length * 45, 4000, 11000);
+  CAP.until = clockMs() + clamp(3500 + d.length * 45, 4000, 11000);
   CAP.ev = e;
 }
 function updateCaption() {
-  if (CAP.until && performance.now() > CAP.until) {
+  if (CAP.until && clockMs() > CAP.until) {
     $("#caption").classList.add("fade");
     CAP.until = 0;
   }
@@ -19862,11 +24463,17 @@ function mmViewFor(t) {
   if ((MV.md.cfg.profile || "").startsWith("leo")) return "track"; // Earth-orbit flights: where on Earth the craft is
   const c = activeCraft(t) || craftById("ship");
   if (!c || !c.P) return "earth";
+  if (mmL2() && vnorm(vsub(c.P, helio("earth", t).r)) < 3e6) return "earth";
   const b = dominantBody(c.P, t);
   return b === "sun" ? "sun" : b === "mars" ? "mars" : "earth";
 }
+// on a flight to L2 the Earth map is drawn in the Sun–Earth rotating frame, where the halo orbit stands still
+const mmL2 = () => !!(MV.md && MV.md.cfg.profile === "l2-halo");
+function mmFrame(view) {
+  return view === "earth" && mmL2() ? "serot" : view;
+}
 function mmCoords(view, tr) {
-  return view === "sun" ? tr.P : tr.frameCoords(view);
+  return view === "sun" ? tr.P : tr.frameCoords(mmFrame(view));
 }
 function mmRmax(view) {
   if (MM.rmax[view]) return MM.rmax[view];
@@ -19881,7 +24488,7 @@ function mmRmax(view) {
       }
     r = Math.min(r, 10.5 * AU);
   } else {
-    const cap = view === "earth" ? 1.8e6 : 9e5;
+    const cap = view === "earth" ? (mmL2() ? 2.4e6 : 1.8e6) : 9e5;
     r = view === "earth" ? 4.3e5 : 2.7e4;
     if (tr) {
       const F = mmCoords(view, tr);
@@ -19975,7 +24582,7 @@ function mmBurnPts(view) {
     P.push(H[0] + s.r[0], H[1] + s.r[1], H[2] + s.r[2]);
     out.push({ t: tm, x: 0, y: 0, name: x.name });
   }
-  const F = view === "sun" ? P : toFrameArr(view, ts, P);
+  const F = view === "sun" ? P : toFrameArr(mmFrame(view), ts, P);
   out.forEach((o, i) => {
     o.x = F[3 * i];
     o.y = F[3 * i + 1];
@@ -20049,7 +24656,8 @@ function drawMinimap(t, force) {
     Y = (y) => clamp(cy - y * k, -4000, 4000);
   MM.hits = [];
   $("#mmTitle").textContent =
-    MM_TITLES[view] + (MM.view === "auto" ? "" : " · fixed");
+    (view === "earth" && mmL2() ? "Sun–Earth L2" : MM_TITLES[view]) +
+    (MM.view === "auto" ? "" : " · fixed");
   // background
   const bg = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, Hh) * 0.7);
   bg.addColorStop(0, "#0b1220");
@@ -20149,12 +24757,22 @@ function drawMinimap(t, force) {
       MM.moonOrb = pts;
       MM.moonOrbT = t;
     }
+    // (in the Sun–Earth frame the ecliptic points are turned with seRot; the Moon's orbit comes out the near-circle it is)
+    const Rm3 = mmL2() ? seRot(t) : null,
+      rot = (x, y, z = 0) =>
+        Rm3
+          ? [
+              Rm3[0] * x + Rm3[3] * y + Rm3[6] * z,
+              Rm3[1] * x + Rm3[4] * y + Rm3[7] * z,
+            ]
+          : [x, y];
     g.strokeStyle = "rgba(200,210,225,.35)";
     g.beginPath();
     MM.moonOrb.forEach((v, i) => {
       if (i % 2) return;
-      const x = X(MM.moonOrb[i]),
-        y = Y(MM.moonOrb[i + 1]);
+      const q = rot(MM.moonOrb[i], MM.moonOrb[i + 1]);
+      const x = X(q[0]),
+        y = Y(q[1]);
       i ? g.lineTo(x, y) : g.moveTo(x, y);
     });
     g.stroke();
@@ -20167,15 +24785,29 @@ function drawMinimap(t, force) {
       "body:earth",
       "#9cc3ff",
     );
-    const Mo = moonGeo(t).r;
+    const Mo = moonGeo(t).r,
+      Mq = rot(Mo[0], Mo[1], Mo[2]);
     dot(
-      X(Mo[0]),
-      Y(Mo[1]),
+      X(Mq[0]),
+      Y(Mq[1]),
       Math.max(3, BODIES.moon.R * k),
       "#cfd3d8",
       "Moon",
       "body:moon",
     );
+    if (Rm3) {
+      const dL2 = vnorm(l2Point(t));
+      if (dL2 < Rm * 1.1) {
+        g.strokeStyle = "rgba(154,184,255,.3)";
+        g.setLineDash([3, 4]);
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.lineTo(X(dL2), cy);
+        g.stroke();
+        g.setLineDash([]);
+        dot(X(dL2), cy, 3, "#9ab8ff", "L2");
+      }
+    } // L2 lies on the frame's x-axis, out past the Earth
   } else {
     const pole = bodyPoleEcl("mars", t);
     const e1 = vperp(pole),
@@ -20212,7 +24844,8 @@ function drawMinimap(t, force) {
   }
   if (view !== "sun") {
     // direction of the Sun
-    const sd = vunit(vscale(center, -1));
+    const sd =
+      view === "earth" && mmL2() ? [-1, 0, 0] : vunit(vscale(center, -1));
     const ang = Math.atan2(sd[1], sd[0]);
     const rr = Math.min(W, Hh) / 2 - 12;
     const ax = cx + Math.cos(ang) * rr,
@@ -20461,7 +25094,9 @@ function drawMinimap(t, force) {
       dMa = vnorm(vsub(c.P, helio("mars", t).r));
     const dom = dominantBody(c.P, t);
     let txt;
-    if (dom === "sun") {
+    if (mmL2() && dE > 2e5 && dE < 3e6 && dom !== "moon")
+      txt = `Sun–Earth L2 region · ${fDist(vnorm(vsub(vsub(c.P, helio("earth", t).r), l2Point(t))))} from L2 · ${fDist(dE)} from Earth`;
+    else if (dom === "sun") {
       const dest = nextDestination(md, t, "sun");
       txt = `Interplanetary space, ${regionText(dS)} · ${fDist(dS)} from the Sun · ${fDist(dE)} from Earth${dest && dest !== "earth" ? ` · ${fDist(vnorm(vsub(c.P, helio(dest, t).r)))} to ${BODIES[dest].name}` : ""}`;
     } else if (dom === "moon")
@@ -20734,6 +25369,7 @@ function scnGroups() {
       "Gravity assist",
       SCENARIOS.filter((s) => s.cfg.profile === "multi-flyby"),
     ],
+    ["Sun–Earth L2", SCENARIOS.filter((s) => s.dest === "l2")],
   ];
 }
 function buildScenarioList() {
@@ -21823,6 +26459,9 @@ function renderVehicleCard() {
   if (isLEO(cfg)) {
     dep = 0;
     depTxt = "";
+  } else if (cfg.profile === "l2-halo") {
+    dep = 3.2;
+    depTxt = "injection toward L2";
   } else if (!lunar) {
     try {
       const tDep =
@@ -22860,6 +27499,9 @@ function audioEvent(e) {
 // Main: state, playback & auto time-warp, frame loop, UI wiring, boot.
 // ============================================================================
 const STATE = {
+  filming: false,
+  filmMs: 0,
+  filmDt: 1 / 30,
   t: 0,
   playing: false,
   rate: 1,
@@ -22887,7 +27529,7 @@ function setTime(t) {
   STATE.lastCaptionEv = -1;
 }
 function syncPlayUI() {
-  $("#bPlay").textContent = STATE.playing ? "❚❚" : "▶";
+  $("#bPlay").textContent = STATE.playing || STATE.filming ? "❚❚" : "▶";
   $("#autoWarp").checked = STATE.auto;
 }
 function fmtRate(r) {
@@ -23008,19 +27650,25 @@ function crossEvents(t0, t1) {
       STATE.rate < 20
     )
       showCaption(e);
-    STATE.dwellUntil = performance.now() + 2600;
+    STATE.dwellUntil = clockMs() + 2600;
   }
 }
 // ---------------- frame loop ----------------
 function frame(now) {
   requestAnimationFrame(frame);
-  const realDt = clamp((now - STATE.last) / 1000, 0, 0.1);
+  const realDt = STATE.filming
+    ? STATE.filmDt
+    : clamp((now - STATE.last) / 1000, 0, 0.1);
   STATE.last = now;
   MV.realDt = realDt;
   if (MV.md && STATE.playing) {
     if (STATE.auto) autoWarp(realDt);
     const md = MV.md;
-    const t1 = clamp(STATE.t + realDt * STATE.rate, md.tStart, md.tEnd);
+    const t1 = clamp(
+      STATE.t + realDt * STATE.rate * (CAM.mode === "cine" ? CINE.timeK : 1),
+      md.tStart,
+      md.tEnd,
+    ); // (slow motion in the cinematic launch's shots)
     crossEvents(STATE.t, t1);
     STATE.t = t1;
     if (STATE.t >= md.tEnd) {
@@ -23051,7 +27699,9 @@ function renderFrame(forCapture) {
     updatePlasmaLight();
     updatePad(t);
     updateRunway(t);
+    updateTerrain();
     updateTrails(t, R.O, camD);
+    updateL2(t, camD);
     updateExhaust(t);
     updateShadows(t);
     updateTracks(t);
@@ -23103,9 +27753,17 @@ function renderFrame(forCapture) {
   if (md && MV.layers.minimap !== false) drawMinimap(t, forCapture);
   const bc = R.bgCam;
   bc.quaternion.copy(R.camera.quaternion);
-  if (bc.fov !== R.camera.fov || bc.aspect !== R.camera.aspect) {
+  if (
+    bc.fov !== R.camera.fov ||
+    bc.aspect !== R.camera.aspect ||
+    bc.userData.shift !== VSHIFT
+  ) {
     bc.fov = R.camera.fov;
     bc.aspect = R.camera.aspect;
+    bc.userData.shift = VSHIFT;
+    if (VSHIFT)
+      bc.setViewOffset(R.width, R.height, 0, VSHIFT, R.width, R.height);
+    else bc.clearViewOffset();
     bc.updateProjectionMatrix();
   }
   const film = filmBegin(); // the film look: draw into its target, then finish onto the screen (app/25_film.js)
@@ -23181,7 +27839,7 @@ function updateHUD(t) {
     if ($("#met").textContent !== met) $("#met").textContent = met;
     const utc = fmtUTC(t) + " UTC";
     if ($("#utc").textContent !== utc) $("#utc").textContent = utc;
-    const w = STATE.playing ? fmtRate(STATE.rate) : "paused";
+    const w = STATE.playing || STATE.filming ? fmtRate(STATE.rate) : "paused";
     if ($("#warp").textContent !== w) $("#warp").textContent = w;
     drawTimeline(t);
     if (MV.layers.burnin) {
@@ -23317,7 +27975,7 @@ function initUI() {
   for (const mm of LENSES) ln.append(h("option", { value: mm }, mm + " mm"));
   ln.addEventListener("change", (e) => {
     CAM.lens = +e.target.value;
-    if (CAM.mode === "auto") DIR.lensUser = CAM.lens;
+    if (directed()) DIR.lensUser = CAM.lens;
     applyLens();
   });
   $("#selAspect").addEventListener("change", (e) => {
@@ -23479,8 +28137,10 @@ function onKey(e) {
   else if (k === "h" || k === "H") $("#app").classList.toggle("hide-ui");
   else if (k === "f" || k === "F") setMode("auto");
   else if (k === "?") $("#help").hidden = false;
-  else if ("123456".includes(k))
-    setMode(["auto", "orbit", "chase", "lookat", "ground", "top"][+k - 1]);
+  else if ("1234567".includes(k))
+    setMode(
+      ["auto", "orbit", "chase", "lookat", "ground", "top", "cine"][+k - 1],
+    );
 }
 function onResize() {
   const cv = R.renderer.domElement;
@@ -23520,6 +28180,10 @@ window.__ms = {
   STATE,
   CAM,
   DIR,
+  CINE,
+  cineShake,
+  cineTimes,
+  craftById,
   MM,
   MV,
   R,

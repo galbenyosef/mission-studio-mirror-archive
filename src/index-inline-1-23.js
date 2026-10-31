@@ -1,5 +1,5 @@
 // index-inline-1 23 — math
-// Lines 8598-8912 of readable/index-inline-1.pretty.js (statement-aligned).
+// Lines 8720-9034 of readable/index-inline-1.pretty.js (statement-aligned).
 const MU_SUN = BODIES.sun.mu;
 function soiOf(b) {
   return BODIES[b].soi || 1e6;

@@ -1,337 +1,389 @@
-// index-inline-2 44 — tele
-// Lines 12369-12703 of readable/index-inline-2.pretty.js (statement-aligned).
-function toFrame(frame, t, P) {
-  const B = frameOrigin(frame, t);
-  const d = vsub(P, B);
-  if (frame !== "emrot") return d;
-  const Rm = emRot(t);
-  return [
-    Rm[0] * d[0] + Rm[3] * d[1] + Rm[6] * d[2],
-    Rm[1] * d[0] + Rm[4] * d[1] + Rm[7] * d[2],
-    Rm[2] * d[0] + Rm[5] * d[1] + Rm[8] * d[2],
-  ];
-}
-function chooseAutoFrame(t, P) {
-  const md = MV.md;
-  if (!md) return "earth";
-  const dM = vnorm(vsub(P, helio("moon", t).r)),
-    dE = vnorm(vsub(P, helio("earth", t).r)),
-    dMa = vnorm(vsub(P, helio("mars", t).r));
-  if (dM < BODIES.moon.soi * 1.2 && md.cfg.dest !== "mars") return "moon";
-  if (dMa < BODIES.mars.soi * 1.5) return "mars";
-  if (dE < BODIES.earth.soi * 1.3) return "earth";
-  return "sun";
-}
-function updateTrails(t, focusP, camDist) {
-  const frame =
-    MV.frameSel === "auto" ? chooseAutoFrame(t, focusP) : MV.frameSel;
-  const show = MV.layers.paths;
-  const f = toFrame(frame, t, focusP);
-  const pr = R.renderer.getPixelRatio();
-  R.renderer.getDrawingBufferSize(_v2);
-  TRAIL_U.uRes.value.copy(_v2);
-  TRAIL_U.uWidth.value = 4.2 * pr;
-  TRAIL_U.uMk.value = 10 * pr;
-  for (const tr of MV.trails) {
-    tr.line.visible = show && (MV.layers.future || t >= tr.o.t0);
-    if (!tr.line.visible) continue;
-    if (tr.byPhase !== !!MV.layers.phasecol) {
-      tr.colorize();
-      tr.anchor = null;
-    } // rebuild with the new colours
-    const need =
-      tr.frame !== frame ||
-      !tr.anchor ||
-      vnorm(vsub(f, tr.anchor)) > Math.max(2000, camDist * 2e3) ||
-      (TRAIL_U.uWinP.value < 1e11 &&
-        !(Math.abs(t - tr.builtT) < TRAIL_PAD * 0.75));
-    if (need) tr.build(frame, f, t);
-    const B = frameOrigin(frame, t);
-    const O = R.O;
-    if (frame === "emrot") {
-      const Rm = emRot(t);
-      const A = tr.anchor;
-      const wa = [
-        Rm[0] * A[0] + Rm[1] * A[1] + Rm[2] * A[2],
-        Rm[3] * A[0] + Rm[4] * A[1] + Rm[5] * A[2],
-        Rm[6] * A[0] + Rm[7] * A[1] + Rm[8] * A[2],
-      ];
-      tr.line.position.set(
-        B[0] + wa[0] - O[0],
-        B[1] + wa[1] - O[1],
-        B[2] + wa[2] - O[2],
+// index-inline-2 44 — add
+// Lines 12072-12458 of readable/index-inline-2.pretty.js (statement-aligned).
+function jwstHandModel(flags = {}) {
+  const g = new THREE.Group();
+  const dark = mat("#2a2c31", "dark"),
+    alu = mat("#b9bec5", "metal"),
+    black = mat("#141518", "dark"),
+    truss = jwTrussMat();
+  // the gold: metallic, but with a glow of its own colour so that it reads as gold in the dark of space, where a true
+  // metal reflects nothing but black
+  const gold =
+    JW.gold ||
+    (JW.gold = new THREE.MeshStandardMaterial({
+      color: "#e9b94c",
+      roughness: 0.22,
+      metalness: 0.85,
+      emissive: "#5a3c0c",
+      emissiveIntensity: 1,
+    }));
+  const foil =
+    typeof foilMat === "function"
+      ? foilMat("mylar", 2)
+      : mat("#d9dce0", "foil");
+  const lerp = (a, b, f) => a + (b - a) * f;
+  // ---- the spacecraft bus: aluminium panels under silver blankets, its thrusters, star trackers and radiators ----
+  const bus = box(3.5, 1.5, 3.5, foil);
+  g.add(bus);
+  const busTrim = box(3.6, 0.12, 3.6, alu);
+  busTrim.position.y = 1.5;
+  g.add(busTrim);
+  for (const [x, z] of [
+    [-1.2, -1.2],
+    [1.2, -1.2],
+    [-1.2, 1.2],
+    [1.2, 1.2],
+  ]) {
+    const t = cyl(0.07, 0.12, 0.22, alu, 12);
+    t.rotation.x = Math.PI;
+    t.position.set(x, 0.02, z);
+    g.add(t);
+  } // the SCAT thrusters at the corners
+  const thr = cyl(0.12, 0.08, 0.25, alu, 12);
+  thr.rotation.x = Math.PI;
+  thr.position.y = 0.02;
+  g.add(thr); // the main engine
+  for (const z of [-0.5, 0.5]) {
+    const st = cyl(0.12, 0.1, 0.45, black, 12);
+    st.rotation.z = -Math.PI / 2;
+    st.position.set(1.75, 0.9, z);
+    g.add(st);
+  } // star trackers on the +X face
+  const radB = box(1.2, 0.9, 0.05, alu);
+  radB.position.set(-1.0, 0.3, 1.76);
+  g.add(radB); // a radiator panel on the +Z face
+  // ---- the solar array: five pale panels on a hinge at the aft foot of the bus; a stack under the bus for launch, the
+  // strip swung down toward the Sun once free ----
+  const solarHinge = new THREE.Group();
+  solarHinge.position.set(-1.7, 0.05, 0);
+  g.add(solarHinge);
+  const wing = new THREE.Group();
+  wing.position.y = -0.08;
+  solarHinge.add(wing);
+  {
+    const cellM = jwCellMat(),
+      pw = 1.0;
+    for (let i = 0; i < 5; i++) {
+      const p = new THREE.Mesh(
+        new THREE.BoxGeometry(pw * 0.96, 0.04, 2.0),
+        cellM,
       );
-      _m4.set(
-        Rm[0],
-        Rm[1],
-        Rm[2],
-        0,
-        Rm[3],
-        Rm[4],
-        Rm[5],
-        0,
-        Rm[6],
-        Rm[7],
-        Rm[8],
-        0,
-        0,
-        0,
-        0,
-        1,
-      );
-      tr.line.quaternion.setFromRotationMatrix(_m4);
+      p.position.x = pw * (i + 0.5) + 0.3;
+      wing.add(p);
+    }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.08, 0.08), alu);
+    arm.position.set(2.7, -0.06, 0);
+    wing.add(arm);
+  }
+  // ---- the high-gain antenna on its boom at the bus's −Z corner, a silver dish ----
+  const hga = new THREE.Group();
+  hga.position.set(1.2, 0.3, -1.6);
+  g.add(hga);
+  const hgaBoom = cyl(0.04, 0.04, 1.0, alu, 10);
+  hgaBoom.rotation.x = Math.PI;
+  hga.add(hgaBoom);
+  const hgaDish = dish(0.6, "#d8dce2");
+  hgaDish.rotation.x = Math.PI;
+  hgaDish.position.y = -1.0;
+  hga.add(hgaDish);
+  // ---- the sunshield pallets, hinged along the bus's ±Z edges: standing up either side of the folded telescope for
+  // launch (the membranes folded inside them), then lowered flat under the shield ----
+  const pallets = [-1, 1].map((s) => {
+    const p = new THREE.Group();
+    p.position.set(0, 1.5, s * 1.75);
+    g.add(p);
+    const slab = box(3.4, 0.3, 4.0, dark);
+    slab.position.z = s * 2.0;
+    p.add(slab);
+    const hinge = cyl(0.08, 0.08, 3.6, alu, 10);
+    hinge.rotation.z = Math.PI / 2;
+    hinge.position.x = 1.8;
+    p.add(hinge);
+    p.userData.s = s;
+    p.userData.slab = slab;
+    return p;
+  });
+  // ---- the five layers of the sunshield: kites across the bus, stacked between it and the telescope, the Sun side
+  // pink-lavender and the telescope side cooler; the layers held apart at the four tips by spreader bars, their edges
+  // drawn taut by cables; the two mid-booms under them along ±X ----
+  const kite = new THREE.Shape();
+  kite.moveTo(-10.6, 0);
+  kite.lineTo(0, 7.1);
+  kite.lineTo(10.6, 0);
+  kite.lineTo(0, -7.1);
+  kite.closePath();
+  const kiteGeo = new THREE.ShapeGeometry(kite, 1);
+  {
+    const p = kiteGeo.attributes.position,
+      uv = [];
+    for (let i = 0; i < p.count; i++)
+      uv.push((p.getX(i) + 10.6) / 21.2, (p.getY(i) + 7.1) / 14.2);
+    kiteGeo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  }
+  kiteGeo.rotateX(-Math.PI / 2);
+  const shield = new THREE.Group();
+  shield.position.y = 1.65;
+  g.add(shield);
+  const kiteMat = (tint) => {
+    const key = "kiteM" + tint;
+    if (JW[key]) return JW[key];
+    const T = jwKiteTex(tint);
+    return (JW[key] = new THREE.MeshStandardMaterial({
+      map: T.map,
+      normalMap: T.nmap,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+      roughness: 0.32,
+      metalness: 0.6,
+      side: THREE.DoubleSide,
+    }));
+  };
+  const layers = [];
+  for (let i = 0; i < 5; i++) {
+    const L = new THREE.Mesh(
+      kiteGeo,
+      kiteMat(i === 4 ? "#b9c3d3" : i === 0 ? "#e2bfe0" : "#dcc4e4"),
+    );
+    L.position.y = i * 0.3;
+    const sc = 1 - 0.012 * i;
+    L.scale.set(sc, 1, sc);
+    shield.add(L);
+    layers.push(L);
+  }
+  for (const [x, z] of [
+    [-10.5, 0],
+    [10.5, 0],
+    [0, 7.0],
+    [0, -7.0],
+  ]) {
+    const bar = box(0.22, 1.9, 0.22, black);
+    bar.position.set(x, -0.3, z);
+    shield.add(bar);
+  } // the spreader bars at the tips
+  for (const [a, b] of [
+    [
+      [-10.6, 0],
+      [0, 7.1],
+    ],
+    [
+      [0, 7.1],
+      [10.6, 0],
+    ],
+    [
+      [10.6, 0],
+      [0, -7.1],
+    ],
+    [
+      [0, -7.1],
+      [-10.6, 0],
+    ],
+  ]) {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]),
+      c = cyl(0.025, 0.025, L, black, 6);
+    c.position.set(a[0], 1.35, a[1]);
+    c.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3((b[0] - a[0]) / L, 0, (b[1] - a[1]) / L),
+    );
+    shield.add(c);
+  } // the edge cables along the top layer
+  const booms = [-1, 1].map((s) => {
+    const b = cyl(0.1, 0.1, 10.6, black, 12);
+    b.rotation.z = (-s * Math.PI) / 2;
+    b.position.set(0, 2.3, 0);
+    g.add(b);
+    return b;
+  });
+  // the momentum flap at the aft tip of the shield, trimming the push of sunlight
+  const flapHinge = new THREE.Group();
+  flapHinge.position.set(0, 1.65, -7.0);
+  g.add(flapHinge);
+  const flap = box(1.8, 0.9, 0.04, alu);
+  flap.rotation.x = 0.35;
+  flapHinge.add(flap);
+  // ---- the deployable tower, and the telescope on it: the primary mirror stands on edge across the shield's short axis,
+  // looking out along +Z over the forward pallet, 6.6 m tall and 6.1 m across with its wings out; the secondary on its
+  // tripod 7 m in front. Folded, the wings swing back behind it and the tripod lies up its face: 3.8 m across, 10.7 m tall ----
+  const dta = cyl(0.3, 0.3, 1.0, truss, 20);
+  dta.position.y = 1.5;
+  g.add(dta);
+  const tel = new THREE.Group();
+  g.add(tel);
+  const yc = 3.7; // the mirror's centre above the tower's top
+  const back = box(3.8, 6.6, 0.3, truss);
+  back.position.set(0, yc - 3.3, -0.3);
+  tel.add(back); // the backplane, a carbon truss
+  const aft = box(1.2, 1.4, 1.4, black);
+  aft.position.set(0, yc - 0.7, -1.7);
+  tel.add(aft); // the instrument module behind
+  const aos = box(0.72, 0.8, 1.3, black);
+  aos.position.set(0, yc - 0.4, 0.05);
+  tel.add(aos); // the aft optics, a black wedge standing out of the mirror's centre
+  const radHinge = new THREE.Group();
+  radHinge.position.set(0, yc - 1.0, -1.7);
+  tel.add(radHinge); // the radiator, swinging down behind
+  const rad = box(2.0, 0.04, 1.5, alu);
+  rad.position.z = -0.75;
+  radHinge.add(rad);
+  // the eighteen hexagons, 1.32 m flat to flat, stacked across their flats in columns, a dark gap between them and a
+  // bevel at each edge: a centre ring of six about the hole, a ring of twelve outside; the outer column of three on
+  // either side is a wing
+  const hexGeo = new THREE.CylinderGeometry(0.625, 0.645, 0.07, 6);
+  hexGeo.rotateX(Math.PI / 2);
+  hexGeo.rotateZ(Math.PI / 6); // facing +Z, flats up and down
+  const R1 = 1.32,
+    R2 = 2.286;
+  const cells = [];
+  for (let k = 0; k < 6; k++) {
+    const a = (k * Math.PI) / 3 + Math.PI / 6;
+    cells.push([R1 * Math.cos(a), R1 * Math.sin(a)]);
+    cells.push([2 * R1 * Math.cos(a), 2 * R1 * Math.sin(a)]);
+    const b = (k * Math.PI) / 3;
+    cells.push([R2 * Math.cos(b), R2 * Math.sin(b)]);
+  }
+  const wings = [-1, 1].map((s) => {
+    const w = new THREE.Group();
+    w.position.set(s * 1.7, yc, 0);
+    tel.add(w);
+    const bp = box(1.4, 4.0, 0.3, truss);
+    bp.position.set(s * 0.7, -2.0, -0.3);
+    w.add(bp);
+    w.userData.s = s;
+    return w;
+  });
+  for (const [x, y] of cells) {
+    const h = new THREE.Mesh(hexGeo, gold);
+    const s = Math.sign(x);
+    if (Math.abs(x) > 2.2) {
+      h.position.set(x - s * 1.7, y, 0);
+      wings[s < 0 ? 0 : 1].add(h);
     } else {
-      tr.line.position.set(
-        B[0] + tr.anchor[0] - O[0],
-        B[1] + tr.anchor[1] - O[1],
-        B[2] + tr.anchor[2] - O[2],
-      );
-      tr.line.quaternion.identity();
+      h.position.set(x, yc + y, 0);
+      tel.add(h);
     }
-    tr.mat.uniforms.uNow.value = t - MV.md.M.t0;
-    tr.mat.uniforms.uFuture.value = MV.layers.future ? 0.42 : 0;
   }
-  MV.frame = frame;
+  // the secondary mirror on its tripod: two struts from the mirror's lower corners, hinged there, and one from the top
+  // of the backplane that follows the apex; folded, the apex lies up the mirror's face, deployed it stands 7 m before it
+  const smHinge = new THREE.Group();
+  smHinge.position.set(0, yc - 3.1, 0.1);
+  tel.add(smHinge);
+  const apex = new THREE.Vector3(0, 3.1, 7.0); // in the hinge's frame: out in front of the mirror's centre
+  for (const [bx, by, bz] of [
+    [-2.3, 0, -0.2],
+    [2.3, 0, -0.2],
+  ]) {
+    const d = apex.clone().sub(new THREE.Vector3(bx, by, bz)),
+      L = d.length();
+    const strut = cyl(0.06, 0.06, L, black, 8);
+    strut.position.set(bx, by, bz);
+    strut.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      d.normalize(),
+    );
+    smHinge.add(strut);
+  }
+  const smHouse = box(0.55, 0.55, 0.6, black);
+  smHouse.position.set(0, apex.y - 0.3, apex.z);
+  smHinge.add(smHouse); // the secondary's housing
+  const sm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.37, 0.37, 0.06, 24),
+    gold,
+  );
+  sm.rotation.x = Math.PI / 2;
+  sm.position.set(0, apex.y, apex.z - 0.32);
+  smHinge.add(sm); // the 0.74-m secondary, facing the primary
+  const topFoot = new THREE.Vector3(0, yc + 3.25, -0.2),
+    topStrut = cyl(0.06, 0.06, 1, black, 8);
+  topStrut.position.copy(topFoot);
+  tel.add(topStrut);
+  const _ap = new THREE.Vector3();
+  const aimTop = () => {
+    smHinge.updateMatrix();
+    _ap.copy(apex).applyMatrix4(smHinge.matrix).sub(topFoot);
+    const L = _ap.length();
+    topStrut.scale.y = L;
+    topStrut.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      _ap.normalize(),
+    );
+  };
+  // ---- the pose: each part between its launch position (0) and its final one (1) ----
+  const pose = (P) => {
+    const f = (k) => P[k] ?? 1;
+    solarHinge.rotation.z = lerp(0, -1.25, f("solar"));
+    wing.scale.x = lerp(0.2, 1, f("solar"));
+    hga.rotation.x = lerp(-Math.PI / 2, 0, f("hga"));
+    for (const p of pallets) {
+      p.rotation.x =
+        p.userData.s *
+        lerp(-Math.PI / 2, 0, f(p.userData.s < 0 ? "fwdPallet" : "aftPallet"));
+      p.userData.slab.material = f("covers") > 0.5 ? foil : dark;
+    }
+    const rise = f("dta");
+    dta.scale.y = lerp(1, 2.2, rise);
+    tel.position.y = 2.5 + lerp(0, 1.2, rise);
+    const open = Math.min(f("fwdPallet"), f("aftPallet")),
+      bo = f("booms");
+    shield.scale.set(lerp(0.12, 1, bo), 1, lerp(0.12, 1, open));
+    for (let i = 0; i < 5; i++) {
+      const ti = f("tension" + (i + 1));
+      layers[i].rotation.x = (i - 2) * 0.035 * ti;
+      layers[i].position.y = i * 0.3 + lerp(-0.1, 0, ti);
+    }
+    for (const b of booms) b.scale.y = Math.max(0.03, lerp(0.03, 1, bo));
+    flapHinge.rotation.x = lerp(Math.PI / 2, 0, f("flap"));
+    flapHinge.position.z = lerp(-1.0, -7.0, open);
+    radHinge.rotation.x = lerp(Math.PI / 2, 0, f("radiator")); // (folded up against the back)
+    smHinge.rotation.x = lerp(-1.154, 0, f("smss"));
+    aimTop(); // (folded, the tripod lies up the mirror's face)
+    for (const w of wings)
+      w.rotation.y =
+        w.userData.s *
+        lerp(Math.PI / 2, 0, f(w.userData.s < 0 ? "portWing" : "stbdWing")); // (folded back behind the mirror)
+  };
+  const steps = flags.deploy || [];
+  if (flags.deployT != null) {
+    g.userData.animate = (t) => {
+      const P = {};
+      for (const s of steps)
+        P[s.key] = smoothstep(
+          clamp((t - (flags.deployT + s.at)) / Math.max(s.dur, 1), 0, 1),
+        );
+      pose(P);
+    };
+    g.userData.done = (t) =>
+      steps.length > 0 && steps.every((s) => t >= flags.deployT + s.at + s.dur);
+  }
+  const stowed = flags.stowed || flags.deployT != null;
+  const P0 = {};
+  if (stowed)
+    for (const k of [
+      "solar",
+      "hga",
+      "fwdPallet",
+      "aftPallet",
+      "dta",
+      "flap",
+      "covers",
+      "booms",
+      "tension1",
+      "tension2",
+      "tension3",
+      "tension4",
+      "tension5",
+      "smss",
+      "radiator",
+      "portWing",
+      "stbdWing",
+    ])
+      P0[k] = 0;
+  pose(P0);
+  g.userData.len = 12.0;
+  g.userData.mounts = [{ y: 0, r: 0.3, tag: "OBS", prop: "mmh" }];
+  return g;
 }
 
-// ---------------- osculating orbit ----------------
-function dominantBody(P, t) {
-  const dM = vnorm(vsub(P, helio("moon", t).r));
-  if (dM < BODIES.moon.soi) return "moon";
-  const dE = vnorm(vsub(P, helio("earth", t).r));
-  if (dE < BODIES.earth.soi) return "earth";
-  const dMa = vnorm(vsub(P, helio("mars", t).r));
-  if (dMa < BODIES.mars.soi) return "mars";
-  return "sun";
-}
-function updateOsc(c, t) {
-  if (!MV.osc) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute(
-      "position",
-      new THREE.BufferAttribute(new Float32Array(3 * 721), 3),
-    );
-    MV.osc = new THREE.Line(
-      g,
-      new THREE.LineBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      }),
-    );
-    MV.osc.frustumCulled = false;
-    R.scene.add(MV.osc);
-  }
-  const L = MV.osc;
-  if (!MV.layers.osc || !c || !c.s || !c.P || c.s.surface) {
-    L.visible = false;
-    return;
-  }
-  const b = dominantBody(c.P, t);
-  const B = helio(b, t);
-  const r = vsub(c.P, B.r),
-    v = vsub(vadd(helio(c.s.ref, t).v, c.s.v), B.v);
-  const mu = BODIES[b].mu;
-  const el = rv2coe(r, v, mu);
-  const arr = L.geometry.attributes.position.array;
-  // anchor at the craft to keep precision near it
-  let nmax;
-  if (el.e < 0.999) {
-    for (let i = 0; i <= 720; i++) {
-      const p = coe2rv(el.p, el.e, el.i, el.Om, el.w, (i / 720) * TAU, mu).r;
-      arr[3 * i] = p[0] - r[0];
-      arr[3 * i + 1] = p[1] - r[1];
-      arr[3 * i + 2] = p[2] - r[2];
-    }
-    nmax = 721;
-  } else {
-    const nuMax = Math.acos(-1 / el.e) - 0.02;
-    for (let i = 0; i <= 720; i++) {
-      const nu = -nuMax + (2 * nuMax * i) / 720;
-      const p = coe2rv(el.p, el.e, el.i, el.Om, el.w, nu, mu).r;
-      const k = vnorm(p) > 5 * (BODIES[b].soi || 1e9) ? 0 : 1;
-      arr[3 * i] = (p[0] - r[0]) * k;
-      arr[3 * i + 1] = (p[1] - r[1]) * k;
-      arr[3 * i + 2] = (p[2] - r[2]) * k;
-    }
-    nmax = 721;
-  }
-  L.geometry.attributes.position.needsUpdate = true;
-  L.geometry.setDrawRange(0, nmax);
-  const O = R.O;
-  L.position.set(c.P[0] - O[0], c.P[1] - O[1], c.P[2] - O[2]);
-  L.visible = true;
-  MV.oscEl = { body: b, el };
-}
-
-// ---------------- vectors (velocity, gravity, thrust, drag) ----------------
-const VEC_DEF = [
-  { id: "vel", name: "velocity", color: "#5fe3a1" },
-  { id: "g:earth", name: "g Earth", color: "#5cc8ff" },
-  { id: "g:moon", name: "g Moon", color: "#d6d6d6" },
-  { id: "g:sun", name: "g Sun", color: "#ffd27a" },
-  { id: "g:mars", name: "g Mars", color: "#ff8a5c" },
-  { id: "thrust", name: "thrust", color: "#ff9f43" },
-  { id: "drag", name: "drag", color: "#ff6767" },
-];
-function initVectors() {
-  MV.vecs = VEC_DEF.map((d) => {
-    const a = new THREE.ArrowHelper(
-      new THREE.Vector3(1, 0, 0),
-      new THREE.Vector3(),
-      1,
-      new THREE.Color(d.color),
-      0.18,
-      0.08,
-    );
-    a.visible = false;
-    a.line.material.depthTest = false;
-    a.cone.material.depthTest = false;
-    a.renderOrder = 20;
-    a.line.renderOrder = 20;
-    a.cone.renderOrder = 20;
-    R.scene.add(a);
-    const lab = h("div", { class: "vlbl", style: `color:${d.color}` });
-    $("#vecLabels").append(lab);
-    return { ...d, arrow: a, lab };
-  });
-}
-function updateVectors(c, t, tele) {
-  const show = MV.layers.vectors && c && c.P && tele;
-  for (const v of MV.vecs) {
-    v.arrow.visible = false;
-    v.lab.style.transform = "translate(-9999px,0)";
-  }
-  if (!show) return;
-  const camD = R.camera.position.distanceTo(c.node.position);
-  const base = camD * 0.16;
-  const pos = c.node.position;
-  const items = [];
-  items.push({
-    id: "vel",
-    dir: tele.vRel,
-    mag: vnorm(tele.vRel),
-    txt: fSpeed(vnorm(tele.vRel)),
-    scale: 1,
-  });
-  const gmax = Math.max(...tele.grav.map((g) => g.a));
-  for (const g of tele.grav) {
-    if (!["earth", "moon", "sun", "mars"].includes(g.body)) continue;
-    if (g.a < gmax * 1e-3) continue;
-    items.push({
-      id: "g:" + g.body,
-      dir: g.dir,
-      mag: g.a,
-      txt: fAcc(g.a),
-      scale: clamp(
-        0.45 + 0.18 * Math.log10((g.a / gmax) * 1000 + 1e-9),
-        0.2,
-        1,
-      ),
-    });
-  }
-  if (tele.thrustAcc > 0)
-    items.push({
-      id: "thrust",
-      dir: tele.thrustDir,
-      mag: tele.thrustAcc,
-      txt: fAcc(tele.thrustAcc),
-      scale: clamp(
-        0.5 + 0.2 * Math.log10(tele.thrustAcc / 9.81 + 1e-6),
-        0.3,
-        1.1,
-      ),
-    });
-  if (tele.dragAcc > 1e-4)
-    items.push({
-      id: "drag",
-      dir: tele.dragDir,
-      mag: tele.dragAcc,
-      txt: fAcc(tele.dragAcc),
-      scale: clamp(
-        0.5 + 0.2 * Math.log10(tele.dragAcc / 9.81 + 1e-6),
-        0.2,
-        1.0,
-      ),
-    });
-  const W = R.width,
-    Hh = R.height;
-  for (const it of items) {
-    const v = MV.vecs.find((x) => x.id === it.id);
-    if (!v || !it.dir || vnorm(it.dir) < 1e-12) continue;
-    const d = vunit(it.dir);
-    const len = base * it.scale;
-    v.arrow.position.copy(pos);
-    v.arrow.setDirection(new THREE.Vector3(d[0], d[1], d[2]));
-    v.arrow.setLength(len, len * 0.16, len * 0.07);
-    v.arrow.visible = true;
-    const tip = pos
-      .clone()
-      .add(new THREE.Vector3(d[0], d[1], d[2]).multiplyScalar(len * 1.04))
-      .project(R.camera);
-    if (tip.z < 1 && tip.z > -1) {
-      const x = ((tip.x + 1) / 2) * W,
-        y = ((1 - tip.y) / 2) * Hh;
-      v.lab.textContent = `${v.name} ${it.txt}`;
-      v.lab.style.transform = `translate(${x + 4}px, ${y - 8}px)`;
-    }
-  }
-}
-
-// ---------------- labels ----------------
-function initBodyLabels() {
-  MV.bodyLabels = BODY_LIST.map((name) => {
-    const el = h(
-      "div",
-      { class: "lbl body", style: `color:${BODY_COLORS[name]}` },
-      h("span", { class: "dot" }),
-      h("span", null, BODIES[name].name),
-    );
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setTarget("body:" + name);
-    });
-    $("#labels").append(el);
-    return { name, el };
-  });
-}
-const _pv = new THREE.Vector3();
-function occluded(scenePos) {
-  // is the point hidden behind a planet?
-  const cam = R.camera.position;
-  const d = _pv.copy(scenePos).sub(cam);
-  const L = d.length();
-  d.divideScalar(L);
-  for (const name of ["earth", "moon", "mars", "venus", "jupiter", "sun"]) {
-    const b = R.bodies[name];
-    const C = b.group.position;
-    const oc = C.clone().sub(cam);
-    const tca = oc.dot(d);
-    if (tca < 0 || tca > L) continue;
-    const d2 = oc.lengthSq() - tca * tca;
-    if (d2 < b.R * b.R * 0.995) {
-      if (C.distanceTo(scenePos) < b.R * 1.001) continue;
-      return true;
-    }
-  }
-  return false;
-}
-function placeLabel(el, scenePos, rects, priority) {
-  const p = _pv.copy(scenePos).project(R.camera);
-  if (p.z > 1 || p.z < -1 || Math.abs(p.x) > 1.05 || Math.abs(p.y) > 1.05) {
-    el.style.transform = "translate(-9999px,0)";
-    return false;
-  }
-  const x = ((p.x + 1) / 2) * R.width,
-    y = ((1 - p.y) / 2) * R.height;
-  if (priority < 3)
-    for (const r of rects)
-      if (Math.abs(r[0] - x) < 70 && Math.abs(r[1] - y) < 14) {
-        el.style.transform = "translate(-9999px,0)";
-        return false;
-      }
-  rects.push([x, y]);
-  el.style.transform = `translate(${Math.round(x - 4)}px, ${Math.round(y - 7)}px)`;
-  return true;
-}
+// ==== 40_missionview.js
+// ============================================================================
+// Mission view: craft nodes (models, plumes, chutes, plasma), trajectory
+// lines in selectable frames, labels, vectors, osculating orbit, surface caps.
+// ============================================================================

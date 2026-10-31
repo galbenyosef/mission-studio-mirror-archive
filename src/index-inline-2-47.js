@@ -1,249 +1,272 @@
-// index-inline-2 47 — three
-// Lines 13361-13607 of readable/index-inline-2.pretty.js (statement-aligned).
-function runwayTexture(rw) {
-  const lake = rw.surface === "lakebed",
-    W = 128,
-    Hh = 4096,
-    c = document.createElement("canvas");
-  c.width = W;
-  c.height = Hh;
-  const g = c.getContext("2d"),
-    mPerPx = (rw.len * 1000) / Hh,
-    px = (m) => m / mPerPx,
-    wPx = (m) => (m / (rw.wid * 1000)) * W;
-  g.fillStyle = lake ? "#d9cdb2" : "#6d6c69";
-  g.fillRect(0, 0, W, Hh);
-  if (!lake)
-    for (let i = 0; i < 900; i++) {
-      g.fillStyle = `rgba(${Math.random() < 0.5 ? "255,255,255" : "0,0,0"},${0.03 + Math.random() * 0.05})`;
-      g.fillRect(
-        Math.random() * W,
-        Math.random() * Hh,
-        2 + Math.random() * 10,
-        2 + Math.random() * 30,
-      );
-    }
-  const paint = lake ? "#1d1c1a" : "#f2f1ec";
-  g.fillStyle = paint;
-  // centreline dashes, edge stripes, threshold bars and touchdown-zone marks at both ends
-  for (let y = px(120); y < Hh - px(120); y += px(60))
-    g.fillRect(W / 2 - wPx(0.45), y, wPx(0.9), px(36));
-  g.fillRect(wPx(1.5), 0, wPx(lake ? 3 : 0.9), Hh);
-  g.fillRect(W - wPx(1.5) - wPx(lake ? 3 : 0.9), 0, wPx(lake ? 3 : 0.9), Hh);
-  for (const end of [0, 1]) {
-    const y0 = end ? Hh - px(8) - px(45) : px(8);
-    if (!lake)
-      for (let k = 0; k < 16; k++) {
-        const x = wPx(4) + (k * (W - wPx(8))) / 16;
-        g.fillRect(x, y0, wPx(1.8), px(45));
-      }
-    else g.fillRect(wPx(2), y0 + px(20), W - wPx(4), px(6));
-    for (const d of [150, 300, 450, 600]) {
-      const y = end ? Hh - px(d) - px(22) : px(d);
-      g.fillRect(W / 2 - wPx(14), y, wPx(3), px(22));
-      g.fillRect(W / 2 + wPx(11), y, wPx(3), px(22));
+// index-inline-2 47 — model
+// Lines 13022-13291 of readable/index-inline-2.pretty.js (statement-aligned).
+function updateCraft(c, t, camPos) {
+  const s = c.s;
+  if (!s) {
+    c.node.visible = false;
+    return;
+  }
+  if (c.upT === t) return;
+  c.upT = t; // (already done this frame: a docked craft updates the station it hangs on first)
+  const P = c.P;
+  const O = R.O;
+  c.node.position.set(P[0] - O[0], P[1] - O[1], P[2] - O[2]);
+  c.node.visible = true;
+  const cfgL = cfgAt(c, t);
+  const key = JSON.stringify(cfgL || {}) + "|" + c.o.model;
+  if (key !== c.curKey) {
+    const m = craftModel(c, cfgL);
+    if (c.cur) c.node.remove(c.cur);
+    if (c.cur && c.qInit && shuttleHalfTurn(c, c.curCfg, cfgL))
+      c.q.multiply(_qHalfY);
+    c.node.add(m);
+    c.cur = m;
+    c.curKey = key;
+    c.curCfg = cfgL;
+  }
+  const model = c.cur;
+  const act = activeMounts(c, s, t, cfgL, model);
+  craftAttitude(c, s, t, cfgL, act, _q1);
+  const realDt = MV.realDt || 0.016;
+  const jump =
+    Math.abs(t - (c.lastT ?? t)) > Math.max(30, (MV.rate || 1) * 0.5) ||
+    !c.qInit;
+  // On the ground, ease relative to the turning planet: carry last frame's attitude round with it first. Easing in
+  // inertial space lets the model trail the planet's spin, and under a fast time-warp (a frame can be most of a sol)
+  // a lander standing still would lean and tumble end over end.
+  if (!jump && s.surface && c.qGround === s.ref && t !== c.lastT) {
+    bodyQuat(s.ref, c.lastT, _q2).invert();
+    c.q.premultiply(_q2).premultiply(bodyQuat(s.ref, t, _q2));
+  }
+  if (jump) c.q.copy(_q1);
+  else
+    c.q.slerp(
+      _q1,
+      1 - Math.exp(-realDt * 5 * Math.max(1, (MV.rate || 1) / 20)),
+    ); // (quicker under a time-warp, or the lag behind an orbit's turning frame would show as a lean)
+  c.qInit = true;
+  c.lastT = t;
+  c.qGround = s.surface ? s.ref : null;
+  (c.qTarget || (c.qTarget = new THREE.Quaternion())).copy(_q1);
+  // Docked to the station: the two are one rigid body. Each craft's drawn attitude eases toward its target, and under a
+  // fast time-warp the lag would turn each about its own centre, opening the docking interface; so the docked craft takes
+  // the station's drawn attitude and hangs off its drawn position at the fixed relative pose.
+  const host = cfgL && cfgL.docked && craftById("iss");
+  if (host && host !== c && host.s && host.P) {
+    if (host.upT !== t) updateCraft(host, t, camPos);
+    if (host.qTarget) {
+      _q2.copy(host.qTarget).invert();
+      const d = vsub(P, host.P);
+      _vDock.set(d[0], d[1], d[2]).applyQuaternion(_q2).applyQuaternion(host.q);
+      c.node.position.copy(host.node.position).add(_vDock);
+      c.q.copy(host.q).multiply(_q2.multiply(c.qTarget));
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = Math.min(16, R.maxAniso || 1);
-  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-  return t;
-}
-function buildRunway(md) {
-  disposeRunway();
-  const rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
-  if (!rw) return;
-  const b = R.bodies.earth,
-    Rm = (b.R + rw.elev + SH_RWY_TOP) * 1000; // m, a few centimetres above the sphere
-  const C = meshDir(rw.lat, rw.lon),
-    { E, N } = meshEN(rw.lat, rw.lon),
-    hd = rw.hdg * DEG;
-  const f = vadd(vscale(E, Math.sin(hd)), vscale(N, Math.cos(hd))),
-    l = vcross(C, f);
-  const L = rw.len * 1000,
-    Wd = rw.wid * 1000,
-    nL = 64;
-  const at = (x, y) =>
-    vscale(
-      vunit(vadd(vscale(C, b.R * 1000), vadd(vscale(f, x), vscale(l, y)))),
-      Rm,
-    ); // point on the sphere, m (mesh frame)
-  const Pc = at(L / 2, 0),
-    pos = [],
-    uv = [],
-    idx = [];
-  for (let i = 0; i <= nL; i++)
-    for (const j of [0, 1]) {
-      const p = at((L * i) / nL, (j - 0.5) * Wd);
-      pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
-      uv.push(1 - j, i / nL);
+  c.node.quaternion.copy(c.q);
+  // scale: metres → km; optionally enlarge distant craft
+  const dist = Math.max(1e-9, camPos.distanceTo(c.node.position));
+  let sc = 0.001;
+  if (MV.layers.bigcraft) {
+    const pxPerKm = R.pxPerRad / dist;
+    const lenKm = (model.userData.len || 10) * 0.001;
+    const px = lenKm * pxPerKm;
+    if (px < 26) sc *= 26 / Math.max(px, 1e-6);
+  }
+  c.node.scale.setScalar(sc);
+  const ud = model.userData;
+  model.position.z = 0;
+  if (c.o.model === "shuttle" && cfgL && cfgL.key === "sc")
+    model.position.y = 0; // the orbiter's state is its reference point, in flight and on its wheels (shuttleGround)
+  else
+    model.position.y =
+      anchorY(c, cfgL, model, s) + stagingShift(c, t, cfgL, model, s);
+  const so = shuttleSepShift(c, t, cfgL, model, s);
+  if (so) {
+    model.position.y += so[1];
+    model.position.z += so[2];
+  }
+  c.yOff = model.position.y;
+  c.zOff = model.position.z;
+  if (ud.wheels && ud.wheels.length) {
+    const wo = s.rover ? s.rover.wodo : 0;
+    for (const w of ud.wheels) w.rotation.x = -wo / w.userData.wheel;
+  }
+  if (ud.animate) ud.animate(t); // parts in motion on their own timeline (the Shuttle's bay doors and robot arm, Hubble's door)
+  // plumes
+  updatePlumes(c, s, t, act, model);
+  if (c.o.model === "shuttle" || c.ctr) updateContrails(c, s, t, cfgL, model); // wingtip vortex trails in the glide home
+  // parachutes
+  const ch =
+    cfgL && (cfgL.chutes || cfgL.chute) ? cfgL.chutes || cfgL.chute : 0;
+  const chKey = ch ? cfgL.key + ch + (model.userData.dgb ? "d" : "") : null;
+  if (chKey !== c.chuteKey) {
+    if (c.chute) {
+      c.node.remove(c.chute);
+      disposeTree(c.chute);
+      c.chute = null;
     }
-  for (let i = 0; i < nL; i++) {
-    const a = 2 * i,
-      bq = a + 1,
-      cq = a + 2,
-      d = a + 3;
-    idx.push(a, cq, bq, bq, cq, d);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  const m = new THREE.Mesh(
-    g,
-    new THREE.MeshStandardMaterial({
-      map: runwayTexture(rw),
-      roughness: 0.92,
-      metalness: 0,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    }),
-  );
-  const grp = new THREE.Group();
-  grp.add(m);
-  // edge lights every 60 m, green threshold bars, red end bars
-  const lp = [],
-    lc = [],
-    add = (x, y, col) => {
-      const p = at(x, y);
-      lp.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2] + 0);
-      const cc = new THREE.Color(col);
-      lc.push(cc.r, cc.g, cc.b);
-    };
-  for (let x = 0; x <= L + 1; x += 60)
-    for (const s of [-1, 1]) add(x, s * (Wd / 2 + 1.5), "#fff1cf");
-  for (let k = -12; k <= 12; k++) {
-    add(-3, (k * Wd) / 24, "#7dff9a");
-    add(L + 3, (k * Wd) / 24, "#ff5a4a");
-  }
-  const lg = new THREE.BufferGeometry();
-  lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
-  lg.setAttribute("color", new THREE.Float32BufferAttribute(lc, 3));
-  const lights = new THREE.Points(
-    lg,
-    new THREE.PointsMaterial({
-      size: 3.2,
-      sizeAttenuation: false,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }),
-  );
-  lights.renderOrder = 6;
-  grp.add(lights);
-  // place the group at the runway centre in the planet's mesh frame (unit sphere scaled by R): metres → mesh units
-  const k = 1 / (b.R * 1000);
-  grp.position.set(Pc[0] * k, Pc[1] * k, Pc[2] * k);
-  grp.scale.setScalar(k);
-  b.mesh.add(grp);
-  SHV.runway = grp;
-  SHV.lights = lights;
-  SHV.rwy = rw;
-}
-function disposeRunway() {
-  if (!SHV.runway) return;
-  const g = SHV.runway;
-  g.parent && g.parent.remove(g);
-  g.traverse((n) => {
-    if (n.geometry) n.geometry.dispose();
-    if (n.material) {
-      if (n.material.map) n.material.map.dispose();
-      n.material.dispose();
+    if (chKey) {
+      const capR = model.userData.capsuleR || 2;
+      const dgb = model.userData.dgb;
+      const n = dgb ? 1 : ch >= 2 ? (capR > 1.5 ? 3 : 1) : 2;
+      const diam = dgb
+        ? c.o.model === "msl"
+          ? 21.5
+          : 16
+        : ch >= 2
+          ? capR > 2.2
+            ? 35
+            : capR > 1.5
+              ? 25.4
+              : 9
+          : capR > 1.5
+            ? 5
+            : 2;
+      c.chute = makeChutes(dgb ? "dgb" : "ring", n, diam, capR);
+      c.chute.position.y =
+        (model.userData.chuteY || 3) - model.userData.yc + (c.yOff || 0);
+      c.node.add(c.chute);
     }
-  });
-  SHV.runway = null;
-  SHV.lights = null;
-  SHV.rwy = null;
-}
-function updateRunway(t) {
-  // lights on between dusk and dawn
-  if (!SHV.lights) return;
-  const rw = SHV.rwy;
-  const r = sitePosEcl("earth", rw.lat, rw.lon, 0, t),
-    sun = vunit(vscale(helio("earth", t).r, -1));
-  const el = vdot(vunit(r), sun);
-  SHV.lights.material.opacity = clamp((0.05 - el) / 0.1, 0, 1);
-}
-
-// ==== 45_rover.js
-// ============================================================================
-// Surface: craft standing exactly on the ground that is drawn (the flat facets of the
-// high-resolution surface patch), contact shadows, and a rover that drives after landing
-// (first drive as flown, then illustrative daily commutes) leaving wheel tracks.
-// ============================================================================
-const _qG = new THREE.Quaternion(),
-  _vG = new THREE.Vector3(),
-  _rayG = new THREE.Ray(),
-  _ta = new THREE.Vector3(),
-  _tb = new THREE.Vector3(),
-  _tc = new THREE.Vector3(),
-  _td = new THREE.Vector3(),
-  _hitG = new THREE.Vector3();
-// d: unit direction [x, y, z] in the planet mesh's own frame → point on the drawn ground (planet-radius units), or null outside the patches
-function capHitLocal(body, d) {
-  for (const ci of MV.capInfo) {
-    if (ci.body !== body || !ci.mesh) continue;
-    const C = ci.mesh.geometry.userData.center,
-      G = ci.mesh.geometry.userData.grid;
-    if (!G) continue;
-    if (d[0] * C[0] + d[1] * C[1] + d[2] * C[2] < Math.cos(ci.ang * DEG))
-      continue;
-    let phi = Math.atan2(d[2], -d[0]);
-    while (phi < G.phiStart) phi += TAU;
-    while (phi >= G.phiStart + TAU) phi -= TAU;
-    const fx = ((phi - G.phiStart) / G.phiLength) * G.seg,
-      fy =
-        ((Math.acos(clamp(d[1], -1, 1)) - G.thetaStart) / G.thetaLength) *
-        G.seg;
-    if (fx < 0 || fy < 0 || fx >= G.seg || fy >= G.seg) continue;
-    const ix = Math.floor(fx),
-      iy = Math.floor(fy),
-      W = G.seg + 1,
-      P = ci.mesh.geometry.attributes.position;
-    _ta.fromBufferAttribute(P, iy * W + ix + 1);
-    _tb.fromBufferAttribute(P, iy * W + ix);
-    _tc.fromBufferAttribute(P, (iy + 1) * W + ix);
-    _td.fromBufferAttribute(P, (iy + 1) * W + ix + 1);
-    _rayG.origin.set(-C[0], -C[1], -C[2]);
-    _rayG.direction.set(d[0], d[1], d[2]);
-    if (
-      _rayG.intersectTriangle(_ta, _tb, _td, false, _hitG) ||
-      _rayG.intersectTriangle(_tb, _tc, _td, false, _hitG)
-    )
-      return [_hitG.x + C[0], _hitG.y + C[1], _hitG.z + C[2]];
+    c.chuteKey = chKey;
   }
-  return null;
+  updatePlasma(c, s, t, model, !!ch);
 }
-const meshDir = (lat, lon) => {
-  const cl = Math.cos(lat * DEG);
-  return [
-    cl * Math.cos(lon * DEG),
-    Math.sin(lat * DEG),
-    -cl * Math.sin(lon * DEG),
-  ];
-};
-const meshEN = (lat, lon) => {
-  const cl = Math.cos(lat * DEG),
-    sl = Math.sin(lat * DEG),
-    co = Math.cos(lon * DEG),
-    so = Math.sin(lon * DEG);
-  return { E: [-so, 0, -co], N: [-sl * co, cl, sl * so] };
-};
-// mesh-frame vector → ecliptic (body-relative) at time t
-function meshToEcl(body, v, t) {
-  bodyQuat(body, t, _qG);
-  _vG.set(v[0], v[1], v[2]).applyQuaternion(_qG);
-  return [_vG.x, _vG.y, _vG.z];
+// the shock layer and wake of an entry (makePlasma), and the light it throws on the vehicle
+const _vPl = new THREE.Vector3(),
+  _qPl = new THREE.Quaternion();
+function updatePlasma(c, s, t, model, chutes) {
+  const heat = (s.extra && s.extra.heat) || 0,
+    G = c.plasma,
+    U = G.userData;
+  if (heat > 0.3 && !model.userData.plasmaGeo && !U.pending) {
+    // scatter the points over the model ahead of the glow, when the browser is idle (~0.2 s)
+    U.pending = true;
+    whenIdle(() => {
+      plasmaGeometry(model);
+      U.pending = false;
+    }, 1500);
+  }
+  if (!(heat > 3) || chutes) {
+    G.visible = false;
+    return;
+  }
+  const k = clamp((Math.log10(heat) - 0.5) / 1.6, 0.05, 1.1),
+    P = plasmaGeometry(model); // faint at first (a few W/cm²), full by ~70 W/cm²
+  if (U.geo !== P) {
+    U.shell.geometry = P.shell;
+    U.halo.geometry = P.halo;
+    U.wake.geometry = P.wake;
+    U.geo = P;
+  }
+  G.visible = true;
+  G.position.copy(model.position);
+  G.quaternion.copy(model.quaternion);
+  const vAir =
+      s.ref === "earth" || s.ref === "mars"
+        ? vsub(s.v, vcross(bodyOmegaEcl(s.ref, t), s.r))
+        : s.v,
+    dir = vunit(vAir); // through the air, which turns with the planet
+  _vPl
+    .set(dir[0], dir[1], dir[2])
+    .applyQuaternion(
+      _qPl.copy(c.node.quaternion).multiply(model.quaternion).invert(),
+    );
+  const L = P.L,
+    sc = c.node.scale.x,
+    px =
+      (R.height * R.renderer.getPixelRatio()) /
+      (2 * Math.tan((R.camera.fov * DEG) / 2));
+  for (const p of [U.shell, U.halo, U.wake]) {
+    const u = p.material.uniforms;
+    u.uV.value.copy(_vPl);
+    u.uHeat.value = k;
+    u.uTime.value = R.clock;
+    u.uPx.value = px;
+    R.renderer.getDrawingBufferSize(u.uScreen.value);
+    u.uScale.value = sc;
+    u.uOff.value = L * 0.025;
+    u.uSize.value = L * 0.11;
+    u.uLen.value = L * (1.5 + 5 * k);
+    u.uSpread.value = 0.05; // stand-off and point size (m), length of the wake
+  }
+  U.halo.material.uniforms.uSize.value *= 3.5;
+  U.halo.material.uniforms.uOff.value *= 2.5; // the halo: wide points, further off
+  U.shell.material.uniforms.uI.value = 0.22 * Math.min(k, 0.9);
+  U.halo.material.uniforms.uI.value = 0.5 * k;
+  U.wake.material.uniforms.uI.value = 0.065 * k;
+  const d = c.node.position.distanceTo(R.camera.position); // one light, from the glowing craft nearest the camera
+  if (!R.plasmaPick || d < R.plasmaPick.d)
+    R.plasmaPick = { c, d, k, L: L * sc, dir };
 }
-function eclToMesh(body, v, t) {
-  bodyQuat(body, t, _qG);
-  _vG.set(v[0], v[1], v[2]).applyQuaternion(_qG.invert());
-  return [_vG.x, _vG.y, _vG.z];
+function updatePlasmaLight() {
+  const Lt = R.plasmaLight,
+    p = R.plasmaPick;
+  R.plasmaPick = null;
+  if (!Lt) return;
+  if (!p) {
+    Lt.intensity = 0;
+    return;
+  }
+  const n = p.c.node.position;
+  Lt.position.set(
+    n.x + p.dir[0] * p.L * 0.45,
+    n.y + p.dir[1] * p.L * 0.45,
+    n.z + p.dir[2] * p.L * 0.45,
+  ); // in the shock layer, on the windward side
+  Lt.distance = p.L * 3;
+  Lt.intensity = 2.2 * p.k;
 }
-
-// ---------------- rover drive plan ----------------
+// ---------------- exhaust plumes, sized by propellant mass flow ----------------
+// The visible flame of a rocket engine at sea level grows with the square root of the propellant it burns per second
+// (a nozzle's area scales with its flow): about 1.6 m per √(kg/s), so the Saturn V's five F-1s (13 t/s) trail a flame
+// longer than the rocket while a lunar module's descent engine (15 kg/s) shows a few metres. In thinning air the plume
+// lengthens and balloons out; climbing through Earth's upper atmosphere it keeps swelling (the exhaust leaves the nozzles
+// at far more than the air's pressure and spreads until it matches it) into a glowing envelope many times the vehicle's
+// width, which fades above 100 km, where there is no air left for the exhaust to burn in.
+const PLUME = { k: 1.6, solid: 1.25, grow: 1.6 };
+const stageFlow = (st) => st.thrustVac / (st.ispVac * G0); // kg/s at full thrust
+function curveAt(curve, x) {
+  if (x <= curve[0][0]) return curve[0][1];
+  for (let i = 1; i < curve.length; i++)
+    if (x <= curve[i][0]) {
+      const a = curve[i - 1],
+        b = curve[i];
+      return a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0]);
+    }
+  return curve[curve.length - 1][1];
+}
+// propellant flow through one drawn plume (kg/s) and its share of full thrust. Launch-vehicle stages: solid boosters follow
+// their thrust curve, liquid engines their throttle, shared by the boosters or engines drawn for that stage. A spacecraft or
+// an upper stage flying alone: its current thrust over the engine's specific impulse, shared by the engines firing.
+function mountFlow(c, s, t, m, act, cfgL) {
+  const same = act.filter((x) => x.tag === m.tag).length || 1;
+  const thr = s.extra && s.extra.throttle != null ? s.extra.throttle : 1;
+  if (cfgL && cfgL.key === "launch" && m.idx != null) {
+    const st = LAUNCHERS[cfgL.launcher].stages[m.idx];
+    const f = st.parallel
+      ? st.curve
+        ? Math.max(curveAt(st.curve, t - MV.md.M.t0), 0)
+        : 1
+      : thr;
+    return { flow: (stageFlow(st) * f) / same, f };
+  }
+  let isp = 0;
+  if (cfgL && cfgL.key === "stack")
+    isp = LAUNCHERS[cfgL.launcher].stages[cfgL.stage].ispVac;
+  else {
+    const b = MV.md.burnAt(t, c.o.id);
+    if (b && b.isp) isp = b.isp;
+  }
+  if (!isp) {
+    const mod = MV.md.SC.modules.DS || MV.md.SC.modules.LDR;
+    isp = (mod && mod.engine && mod.engine.isp) || 300;
+  }
+  return { flow: (s.T || 0) / (isp * G0) / act.length, f: thr };
+}
+// all the propellant the vehicle burns at liftoff (kg/s): sizes the fire and smoke at the pad and the trail behind the rocket
+function liftoffFlow(L) {
+  return liftoffStages(L).reduce((a, st) => a + stageFlow(st), 0);
+}
+const blastScale = (L) => clamp(Math.sqrt(liftoffFlow(L) / 13000), 0.35, 1.35); // 1 for the Saturn V
+const _vDown = new THREE.Vector3(0, -1, 0),
+  _vPd = new THREE.Vector3();

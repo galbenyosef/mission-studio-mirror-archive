@@ -1,0 +1,127 @@
+// index-inline-1 44 — desc
+// Lines 14773-14897 of readable/index-inline-1.pretty.js (statement-aligned).
+const JWST_DEPLOY = (() => {
+  const h = 3600,
+    d = 86400;
+  return [
+    {
+      key: "solar",
+      name: "Solar array deployed",
+      at: 31 * 60,
+      dur: 120,
+      desc: "Half an hour after launch the five-panel solar array unfolds on its own and the telescope is on its own power.",
+    },
+    {
+      key: "hga",
+      name: "High-gain antenna released",
+      at: d,
+      dur: 600,
+      desc: "The gimbaled antenna swings out to point at the Earth.",
+    },
+    {
+      key: "fwdPallet",
+      name: "Forward sunshield pallet lowered",
+      at: 3 * d,
+      dur: 4 * h,
+      desc: "The forward pallet, folded against the spacecraft bus for launch, is lowered; the folded sunshield rides on it.",
+    },
+    {
+      key: "aftPallet",
+      name: "Aft sunshield pallet lowered",
+      at: 3.3 * d,
+      dur: 4 * h,
+      desc: "The aft pallet follows, the two now lying flat on either side of the bus.",
+    },
+    {
+      key: "dta",
+      name: "Deployable tower extended",
+      at: 4 * d,
+      dur: 6.5 * h,
+      desc: "The tower between the bus and the telescope extends 1.2 m, to make room for the sunshield and to isolate the cold telescope from the warm bus.",
+    },
+    {
+      key: "flap",
+      name: "Momentum flap released",
+      at: 5 * d,
+      dur: 600,
+      desc: "A small flap at the aft end balances the pressure of sunlight on the great sunshield, so the reaction wheels need less unloading.",
+    },
+    {
+      key: "covers",
+      name: "Sunshield covers rolled up",
+      at: 6 * d,
+      dur: 2 * h,
+      desc: "The covers that protected the folded membranes during launch roll up and expose the five layers.",
+    },
+    {
+      key: "booms",
+      name: "Mid-booms extended",
+      at: 7 * d,
+      dur: 6 * h,
+      desc: "The two mid-booms telescope out sideways, drawing the sunshield open to its full 21-m width: a kite the size of a tennis court.",
+    },
+    {
+      key: "tension1",
+      name: "Sunshield layer 1 tensioned",
+      at: 8 * d,
+      dur: 2 * h,
+      desc: "The outermost, hottest layer is pulled taut. Each layer is aluminised Kapton thinner than a human hair.",
+    },
+    {
+      key: "tension2",
+      name: "Sunshield layer 2 tensioned",
+      at: 9 * d,
+      dur: 2 * h,
+      desc: "Layer two. The gaps between the layers let heat radiate away sideways; each layer is cooler than the one below it.",
+    },
+    {
+      key: "tension3",
+      name: "Sunshield layer 3 tensioned",
+      at: 9.3 * d,
+      dur: 2 * h,
+      desc: "Layer three.",
+    },
+    {
+      key: "tension4",
+      name: "Sunshield layer 4 tensioned",
+      at: 10 * d,
+      dur: 2 * h,
+      desc: "Layer four.",
+    },
+    {
+      key: "tension5",
+      name: "Sunshield layer 5 tensioned",
+      at: 10.3 * d,
+      dur: 2 * h,
+      desc: "The innermost layer: the telescope side of the shield will settle near −230 °C while the Sun side bakes at 85 °C.",
+    },
+    {
+      key: "smss",
+      name: "Secondary mirror deployed",
+      at: 11 * d,
+      dur: 2 * h,
+      desc: "The tripod carrying the 0.74-m secondary mirror unfolds to stand 7 m in front of the primary.",
+    },
+    {
+      key: "radiator",
+      name: "Aft radiator deployed",
+      at: 12 * d,
+      dur: 600,
+      desc: "The radiator that cools the instruments swings out behind the mirror.",
+    },
+    {
+      key: "portWing",
+      name: "Port primary mirror wing unfolded",
+      at: 13 * d,
+      dur: 3 * h,
+      desc: "Three of the eighteen gold hexagons, folded back for launch, swing into place and latch.",
+    },
+    {
+      key: "stbdWing",
+      name: "Starboard primary mirror wing unfolded",
+      at: 14 * d,
+      dur: 3 * h,
+      desc: "The last wing latches: the 6.5-m mirror is complete, and the telescope has fully unfolded, 1.2 million km from home.",
+    },
+  ];
+})();

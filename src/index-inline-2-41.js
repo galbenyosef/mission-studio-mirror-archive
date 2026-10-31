@@ -1,351 +1,340 @@
 // index-inline-2 41 — math
-// Lines 11507-11855 of readable/index-inline-2.pretty.js (statement-aligned).
-const PAD_TOP = 0.8; // m: the deck top stands this far above the ground (never coplanar with it, so the two cannot z-fight)
-// the height of the vehicle's lowest nozzle above the ground on its pad (the pad's own figure, or the generic pad's)
-function padStandH() {
-  return MV.pad && MV.pad.userData.stand != null
-    ? MV.pad.userData.stand
-    : PAD_TOP + MOUNT_H;
+// Lines 11116-11453 of readable/index-inline-2.pretty.js (statement-aligned).
+function ssCorrugated() {
+  if (SS.corr) return SS.corr;
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 64;
+  const g = c.getContext("2d");
+  for (let x = 0; x < 512; x++) {
+    const ph = (x % 8) / 8,
+      v = 150 + 70 * Math.cos(ph * TAU);
+    g.fillStyle = `rgb(${v},${v + 3},${v + 6})`;
+    g.fillRect(x, 0, 1, 64);
+  }
+  g.fillStyle = "rgba(60,64,70,0.6)";
+  g.fillRect(0, 0, 512, 2);
+  g.fillRect(0, 62, 512, 2);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(18, 1);
+  t.anisotropy = 8;
+  return (SS.corr = new THREE.MeshStandardMaterial({
+    map: t,
+    roughness: 0.4,
+    metalness: 0.75,
+    side: THREE.DoubleSide,
+  }));
 }
-const MOUNT_H = 6; // m: the vehicle stands on hold-down posts this high above the deck; the exhaust goes down through an opening
-// liquid engines lighting on the pad before liftoff: share of liftoff thrust built up so far (null outside the hold-down period)
-function padIgnition(md, t) {
-  const L = md.L,
-    IG = L.ign;
-  if (!IG || !(IG.t > 0) || t >= md.M.t0) return null;
-  const dt = t - (md.M.t0 - IG.t);
-  if (dt < 0) return null;
-  const nG = IG.stagger ? 3 : 1;
-  let f = 0;
-  for (let k = 0; k < nG; k++)
-    f +=
-      smoothstep(
-        clamp((dt - k * (IG.stagger || 0)) / Math.max(IG.ramp, 0.1), 0, 1),
-      ) / nG;
-  const liq = liftoffStages(L).filter((s) => s.prop !== "solid");
-  return {
-    f,
-    full: f > 0.985,
-    thrust: liq.reduce((a, s) => a + s.thrustSL, 0) * f,
-    core: (liq.find((s) => !s.parallel) || liq[0] || {}).id,
-    liq,
-    dt,
-  };
-}
-const GLSL_CLOUD_V = `
-#include <common>
-#include <logdepthbuf_pars_vertex>
-attribute float aSize; attribute float aA; attribute float aG; varying float vA; varying float vG; uniform float uPx;
-void main(){ vA = aA; vG = aG; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * uPx / max(-mv.z, 1e-9), 1.0, 1000.0);
-#include <logdepthbuf_vertex>
-}`;
-const GLSL_CLOUD_F = `
-#include <common>
-#include <logdepthbuf_pars_fragment>
-uniform vec3 uCol; uniform vec3 uGlow; varying float vA; varying float vG;
-void main(){
-  #include <logdepthbuf_fragment>
-  vec2 q = gl_PointCoord - 0.5; float d = length(q) * 2.0; float a = (1.0 - smoothstep(0.2, 1.0, d)) * vA; if (a < 0.01) discard;
-  vec3 c = mix(uCol * (0.8 + 0.25 * (0.5 - q.y)), uGlow, vG);
-  gl_FragColor = vec4(c, a);
-}`;
-const CLOUD_N = 420;
-const hash01 = (i) => {
-  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-};
-function buildPad(md) {
-  const L = md.L,
-    P = padModel(md);
-  let g = new THREE.Group(),
-    holeMat,
-    foot,
-    stand = PAD_TOP + MOUNT_H,
-    deckY = PAD_TOP,
-    trenchD = 70;
-  if (P) {
-    g = P.group;
-    holeMat = P.glow;
-    foot = P.foot;
-    stand = P.stand;
-    deckY = P.deckY;
-    trenchD = P.trenchD || trenchD;
-  } // the real pad (app/46_pads.js)
-  else {
-    // a generic pad
-    const bst = L.stages[0].parallel ? L.stages[0] : null;
-    foot = Math.max(
-      L.diameter / 2,
-      bst && bst.booster ? bst.booster.offset + bst.geom[0][1] : 0,
-    ); // footprint radius, m
-    const hTower = Math.max(60, L.height * 0.95 + MOUNT_H);
-    const tower = box(10, hTower, 10, mat("#8a2f22", "metal"));
-    tower.position.set(foot + 15, 0, 0);
-    g.add(tower);
-    const deck = cyl(90, 90, 6 + PAD_TOP, mat("#a7a39a", "dark"), 8);
-    deck.position.y = -6;
-    g.add(deck);
-    // flame trench across the deck, the exhaust opening under the engines (it glows while they fire) and the hold-down posts
-    const trench = box(16, 0.15, 180, mat("#34312c", "dark"));
-    trench.position.set(0, PAD_TOP, 0);
-    g.add(trench);
-    holeMat = new THREE.MeshBasicMaterial({ color: "#141210" });
-    const hole = box(foot * 2 + 4, 0.2, foot * 2 + 4, holeMat);
-    hole.position.y = PAD_TOP + 0.05;
-    g.add(hole);
-    const postMat = mat("#6d6a64", "metal"),
-      rP = foot + 1.8;
+const STAGE_LOOK_SS = {
+  // Super Heavy: the steel tank, the hot-staging ring on top (dark, vented), the grid fins below it, the engine skirt
+  starshipBooster(g, st) {
+    ssSkin(g, false);
+    const top = st.geom[0][0] + st.geom[1][0],
+      dark = mat("#2c2e31", "dark"),
+      steel = mat("#9ea3a8", "metal");
+    const ring = g.children[1];
+    if (ring && ring.isMesh) ring.material = dark;
+    for (let k = 0; k < 24; k++) {
+      const a = (k * TAU) / 24;
+      const v = box(0.5, 1.2, 0.3, mat("#0d0e10", "dark"));
+      v.position.set(Math.cos(a) * 4.52, top - 1.6, Math.sin(a) * 4.52);
+      v.rotation.y = -a;
+      g.add(v);
+    } // the vents
     for (let k = 0; k < 4; k++) {
-      const a = Math.PI / 4 + (k * Math.PI) / 2;
-      const p = box(2.4, MOUNT_H, 2.4, postMat);
-      p.position.set(Math.cos(a) * rP, PAD_TOP, Math.sin(a) * rP);
-      g.add(p);
+      // the grid fins, in two pairs off the ±X sides (the vehicle's windward sides), folded out
+      const a = (k < 2 ? 0.5 : -0.5) * 0.55 + (k % 2 ? Math.PI : 0),
+        fin = new THREE.Group();
+      fin.position.set(Math.cos(a) * 4.5, top - 5.2, Math.sin(a) * 4.5);
+      fin.rotation.y = -a;
+      g.add(fin);
+      const frame = box(3.0, 0.25, 2.0, dark);
+      frame.position.set(1.5, 0, 0);
+      frame.geometry.translate(0, -0.125, 0);
+      fin.add(frame);
+      for (let i = 1; i < 6; i++) {
+        const b = box(0.06, 0.22, 2.0, steel);
+        b.position.set(i * 0.5, 0, 0);
+        fin.add(b);
+      }
+      for (let i = 1; i < 4; i++) {
+        const b = box(3.0, 0.22, 0.06, steel);
+        b.position.set(1.5, 0, -1 + i * 0.5);
+        fin.add(b);
+      }
+      const shaft = cyl(0.3, 0.3, 0.6, steel, 12);
+      shaft.rotation.z = -Math.PI / 2;
+      shaft.position.set(0.3, 0, 0);
+      fin.add(shaft);
     }
-  }
-  // exhaust and steam billowing out of the flame trench (fixed to the pad, so it stays put as Earth turns)
-  const cg = new THREE.BufferGeometry();
-  cg.setAttribute(
-    "position",
-    new THREE.BufferAttribute(new Float32Array(3 * CLOUD_N), 3),
-  );
-  cg.setAttribute(
-    "aSize",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  cg.setAttribute(
-    "aA",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  cg.setAttribute(
-    "aG",
-    new THREE.BufferAttribute(new Float32Array(CLOUD_N), 1),
-  );
-  const cm = new THREE.ShaderMaterial({
-    vertexShader: GLSL_CLOUD_V,
-    fragmentShader: GLSL_CLOUD_F,
-    uniforms: {
-      uPx: { value: 800 },
-      uCol: { value: new THREE.Color("#e8e4dc") },
-      uGlow: { value: new THREE.Color("#ffb15c") },
-    },
-    transparent: true,
-    depthWrite: false,
-  });
-  const cloud = new THREE.Points(cg, cm);
-  cloud.frustumCulled = false;
-  cloud.renderOrder = 4;
-  g.add(cloud);
-  g.scale.setScalar(0.001);
-  g.userData = {
-    site: LAUNCH_SITES[md.cfg.site],
-    hole: holeMat,
-    cloud,
-    foot,
-    stand,
-    deckY,
-    trenchD,
-    animate: P && P.animate,
-    block: P && P.block,
-  };
-  R.scene.add(g);
-  MV.pad = g;
-}
-function updatePad(t) {
-  const g = MV.pad;
-  if (!g) return;
-  const S = g.userData.site;
-  const O = R.O;
-  const md = MV.md;
-  const r = sitePosEcl("earth", S.lat, S.lon, 0, t);
-  const E = helio("earth", t).r;
-  g.position.set(E[0] + r[0] - O[0], E[1] + r[1] - O[1], E[2] + r[2] - O[2]);
-  basisQuat(vunit(r), localFrame("earth", r, t).north, g.quaternion);
-  g.visible = t < md.M.t0 + 3600 && camDistTo(g.position) < 400;
-  if (!g.visible) return;
-  if (g.userData.animate) g.userData.animate(t); // arms swinging away
-  const t0 = md.M.t0,
-    IG = md.L.ign || { t: 0 },
-    tIgn = t0 - (IG.t || 0);
-  const ship = craftById("ship");
-  const altM = (te) => {
-    if (te < t0) return 0;
-    const s = ship && ship.o.stateAt(te);
-    return s ? (vnorm(s.r) - BODIES.earth.R) * 1000 : 1e9;
-  };
-  // how hard the exhaust hits the pad at time te: engine build-up before liftoff, fading as the vehicle climbs away — once it
-  // is about one and a half flame lengths up. Bigger engines (more propellant per second) throw out more fire and smoke.
-  const sC = blastScale(md.L),
-    fadeAlt = Math.max(110, 1.5 * PLUME.k * Math.sqrt(liftoffFlow(md.L)));
-  const blast = (te) => {
-    if (te < tIgn) return 0;
-    if (te < t0) {
-      const ig = padIgnition(md, te);
-      return ig ? ig.f : 0;
+    // the engine section: the corrugated steel skirt round the engines, and the twenty heat-shield cowls over the outer
+    // ring's engine mounts, a pod each at the skirt's rim
+    const skirt = cyl(4.55, 4.55, 3.8, ssCorrugated(), 48, true);
+    skirt.position.y = -0.6;
+    g.add(skirt);
+    for (let k = 0; k < 20; k++) {
+      const a = (k * TAU) / 20 + 0.1;
+      const pod = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.62, 1.1, 4, 12),
+        mat("#c3c7cb", "metal"),
+      );
+      pod.position.set(Math.cos(a) * 4.45, 0.75, Math.sin(a) * 4.45);
+      pod.scale.set(1, 1, 0.7);
+      pod.rotation.y = -a;
+      g.add(pod);
     }
-    return clamp(1 - altM(te) / fadeAlt, 0, 1);
-  };
-  const bNow = blast(t);
-  g.userData.hole.color.setRGB(
-    0.08 + 0.92 * bNow,
-    0.07 + 0.55 * bNow,
-    0.06 + 0.2 * bNow,
-  );
-  // sunlight on the cloud (night launches get a dim cloud lit orange by the flames)
-  const sunUp = vdot(vunit(vscale(E, -1)), vunit(r));
-  const day = clamp(0.2 + sunUp * 3, 0.12, 1);
-  const cl = g.userData.cloud,
-    A = cl.geometry.attributes,
-    pos = A.position.array,
-    size = A.aSize.array,
-    al = A.aA.array,
-    gl = A.aG.array;
-  cl.material.uniforms.uCol.value.setRGB(0.91 * day, 0.89 * day, 0.86 * day);
-  cl.material.uniforms.uPx.value =
-    R.height / (2 * Math.tan((R.camera.fov * DEG) / 2));
-  const span = (IG.t || 0) + 24,
-    foot = g.userData.foot;
-  let live = 0;
-  for (let i = 0; i < CLOUD_N; i++) {
-    const r1 = hash01(3 * i + 1),
-      r2 = hash01(3 * i + 2),
-      r3 = hash01(3 * i + 3);
-    const te = tIgn + (i / CLOUD_N) * span + r1 * 0.15,
-      a = t - te;
-    const k = a >= 0 ? blast(te) : 0;
-    if (k < 0.03 || a > 200) {
-      al[i] = 0;
-      continue;
-    }
-    let x, y, z, sz;
-    const kind = i % 5;
-    if (kind < 4) {
-      // fire, then smoke and steam, blasting out of both ends of the flame trench
-      const side = kind % 2 ? 1 : -1,
-        v0 = (45 + 40 * r2) * (0.35 + 0.65 * k) * (0.55 + 0.45 * sC),
-        tau = 3.0;
-      const d =
-        g.userData.trenchD + v0 * tau * (1 - Math.exp(-a / tau)) + 1.5 * a;
-      x = (r3 - 0.5) * (12 + 10 * a);
-      z = side * d;
-      y = 7 + (1.8 + 3 * r1) * a + 0.1 * a * a;
-      sz = (20 + 9 * a + 14 * r2) * (0.45 + 0.55 * sC);
-      gl[i] = clamp(k * (1 - a / (1.2 + 0.8 * sC)), 0, 1) * 0.9;
-    } else {
-      // steam from the water deluge, boiling up around the launch mount
-      const ang = r2 * TAU,
-        rr = foot + 6 + 8 * r3 + 3 * a;
-      x = Math.cos(ang) * rr;
-      z = Math.sin(ang) * rr;
-      y = g.userData.deckY + 2 + (4 + 4 * r1) * a;
-      sz = (10 + 6 * a) * (0.5 + 0.5 * sC);
-      gl[i] = clamp(k * (1 - a / 1.2), 0, 1) * 0.5;
-    }
-    pos[3 * i] = x;
-    pos[3 * i + 1] = y;
-    pos[3 * i + 2] = z;
-    size[i] = sz * 0.001;
-    al[i] = k * 0.8 * clamp(a / 0.4, 0, 1) * Math.exp(-a / 60);
-    live++;
-  }
-  A.position.needsUpdate = true;
-  A.aSize.needsUpdate = true;
-  A.aA.needsUpdate = true;
-  A.aG.needsUpdate = true;
-  cl.visible = live > 0;
-}
-function camDistTo(v) {
-  return R.camera.position.distanceTo(v);
-}
-// local high-resolution patch of a planet's surface around a site; an elevation offset (e.g. a crater floor
-// below the Martian datum) blends smoothly back to the mean radius at the patch edge
-const capW = (f) => 1 - smoothstep((f - 0.5) / 0.42);
-function capGeometry(lat, lon, ang, seg, Rb, elev = 0) {
-  const dl = ang / Math.max(Math.cos(lat * DEG), 0.2);
-  const g = new THREE.SphereGeometry(
-    1,
-    seg,
-    seg,
-    (lon - dl + 180) * DEG,
-    2 * dl * DEG,
-    (90 - lat - ang) * DEG,
-    2 * ang * DEG,
-  );
-  const pos = g.attributes.position,
-    uv = g.attributes.uv;
-  const loc = new Float32Array(pos.count * 2),
-    capA = new Float32Array(pos.count).fill(1);
-  const cl = Math.cos(lat * DEG),
-    sl = Math.sin(lat * DEG),
-    co = Math.cos(lon * DEG),
-    so = Math.sin(lon * DEG);
-  const C = [cl * co, sl, -cl * so],
-    E = [-so, 0, -co],
-    N = [-sl * co, cl, sl * so];
-  const p0 = (lon - dl + 180) * DEG,
-    pL = 2 * dl * DEG,
-    t0 = (90 - lat - ang) * DEG,
-    tL = 2 * ang * DEG;
-  for (let i = 0; i < pos.count; i++) {
-    // the point on the unit sphere worked out again in double precision (as SphereGeometry places it): its own 32-bit
-    // copy is up to 3e-8 out — 20 cm on Earth, enough to lift the ground through a launch pad's
-    const ph = p0 + ((i % (seg + 1)) / seg) * pL,
-      th0 = t0 + (Math.floor(i / (seg + 1)) / seg) * tL;
-    const x = -Math.cos(ph) * Math.sin(th0),
-      y = Math.cos(th0),
-      z = Math.sin(ph) * Math.sin(th0);
-    let phi = Math.atan2(z, -x);
-    if (phi < 0) phi += TAU;
-    uv.setXY(i, phi / TAU, 1 - Math.acos(clamp(y, -1, 1)) / Math.PI);
-    loc[2 * i] = Rb * (x * E[0] + y * E[1] + z * E[2]);
-    loc[2 * i + 1] = Rb * (x * N[0] + y * N[1] + z * N[2]);
-    const th = Math.acos(clamp(x * C[0] + y * C[1] + z * C[2], -1, 1)) * RAD;
-    const k = 1 + (elev / Rb) * capW(th / ang);
-    // vertices are stored relative to the site, and the mesh sits at the site: the large planet-radius offsets then
-    // cancel on the CPU in double precision, so the ground near the pad does not jitter (and flicker) in 32-bit floats
-    pos.setXYZ(i, x * k - C[0], y * k - C[1], z * k - C[2]);
-  }
-  g.setAttribute("aLocal", new THREE.BufferAttribute(loc, 2));
-  g.setAttribute("aCap", new THREE.BufferAttribute(capA, 1));
-  if (elev) g.computeVertexNormals();
-  g.userData.center = C;
-  g.userData.grid = {
-    phiStart: (lon - dl + 180) * DEG,
-    phiLength: 2 * dl * DEG,
-    thetaStart: (90 - lat - ang) * DEG,
-    thetaLength: 2 * ang * DEG,
-    seg,
-  };
-  return g;
-}
-function addCap(body, lat, lon, ang, elev = 0) {
-  const b = R.bodies[body];
-  if (!b) return;
-  if (
-    MV.capInfo.some(
-      (c) =>
-        c.body === body &&
-        Math.abs(c.lat - lat) < 0.5 &&
-        Math.abs(c.lon - lon) < 0.5,
-    )
-  )
-    return;
-  const g = capGeometry(lat, lon, ang, 128, b.R, elev);
-  const mesh = new THREE.Mesh(g, b.mat);
-  mesh.renderOrder = 1;
-  const C = g.userData.center;
-  mesh.position.set(C[0], C[1], C[2]);
-  b.mesh.add(mesh);
-  MV.caps.push(mesh);
-  const n = MV.capInfo.filter((c) => c.body === body).length;
-  if (n < 4) {
-    const cl = Math.cos(lat * DEG);
-    b.mat.uniforms.uCapDir.value[n].set(
-      cl * Math.cos(lon * DEG),
-      Math.sin(lat * DEG),
-      -cl * Math.sin(lon * DEG),
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(4.5, 48),
+      mat("#3a3d41", "dark"),
     );
-    b.mat.uniforms.uCapCos.value[n] = Math.cos(ang * 0.985 * DEG);
-  }
-  MV.capInfo.push({ body, lat, lon, ang, elev, mesh });
+    shield.rotation.x = Math.PI / 2;
+    shield.position.y = -0.35;
+    g.add(shield); // the engine shield the Raptors hang from
+    for (let k = 0; k < 4; k++) {
+      const a = (k * TAU) / 4 + TAU / 8;
+      const p = box(1.1, 10, 0.5, mat("#9ea3a8", "metal"));
+      p.position.set(Math.cos(a) * 4.55, 3, Math.sin(a) * 4.55);
+      p.rotation.y = -a;
+      g.add(p);
+    } // raceways and the catch pins' housings
+    for (const s of [1, -1]) {
+      const pin = cyl(0.45, 0.45, 1.2, steel, 12);
+      pin.rotation.z = (-Math.PI / 2) * s;
+      pin.position.set(s * 4.7, top - 7.2, 0);
+      g.add(pin);
+    } // the lift pins the tower catches it by
+  },
+  // the Ship: the steel body with tiles on its windward half, the ogive nose with its black tip, the four flaps
+  starshipShip(g, st) {
+    ssSkin(g, true);
+    const body = st.geom[0][0],
+      L = st.geom[1][0],
+      top = body + L;
+    const nose = g.children[1];
+    if (nose && nose.isMesh) {
+      // the plain cone becomes the ogive, in the tiled skin
+      nose.geometry.dispose();
+      nose.geometry = ssOgive(L, 4.5);
+      nose.position.y = body;
+      const m = ssSkinMat(true).clone();
+      m.map = m.map.clone();
+      m.map.repeat.set(1, L / 3.66);
+      m.map.needsUpdate = true;
+      nose.material = m;
+    }
+    const tip = new THREE.Mesh(
+      ssOgive(L, 4.5, 16, L - 4.2),
+      mat("#141517", "tile"),
+    );
+    tip.scale.set(1.01, 1, 1.01);
+    tip.position.y = body;
+    g.add(tip); // the tip, tiled all round for its last 4 m
+    // the aft flaps (±Z, hinged along the body with their tiled face to −X): 9.6 m along the body, 4.4 m out at the root,
+    // the leading corner cut back to the body; the hinge fairings (aerocovers) at their roots on the windward side
+    const aft = [
+      [0, 0],
+      [4.4, 0],
+      [4.4, 3.2],
+      [3.5, 5.8],
+      [1.0, 9.3],
+      [0, 9.6],
+    ];
+    for (const s of [-1, 1]) {
+      const f = ssFlap(aft, 0.9);
+      f.position.set(-0.3, 0.6, s * 4.25);
+      f.scale.z = s;
+      g.add(f);
+      const cov = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.9, 0.9, 9.6, 14, 1, false, 0, Math.PI),
+        mat("#1a1b1e", "tile"),
+      );
+      cov.rotation.y = -Math.PI / 2;
+      cov.position.set(-0.9, 5.4, s * 4.0);
+      g.add(cov);
+    }
+    // the forward flaps (Block 2): small, 5.2 m along the lower nose, set round toward the lee side (+X) out of the airflow
+    const fwd = [
+      [0, 0],
+      [2.9, 0],
+      [2.9, 1.3],
+      [0.5, 5.6],
+      [0, 5.9],
+    ]; // (a triangle swept back to the body, two thirds of Block 1's)
+    for (const s of [-1, 1]) {
+      const phi = 0.5,
+        r = 4.3,
+        f = ssFlap(fwd, 0.55);
+      f.position.set(Math.sin(phi) * r, body + 1.2, s * Math.cos(phi) * r);
+      f.scale.z = s;
+      f.rotation.y = s * phi;
+      g.add(f);
+      const cov = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 0.5, 5.6, 12, 1, false, 0, Math.PI),
+        mat("#1a1b1e", "tile"),
+      );
+      cov.rotation.y = -Math.PI / 2 + s * phi;
+      cov.position.set(
+        Math.sin(phi) * (r - 0.4),
+        body + 4.0,
+        s * Math.cos(phi) * (r - 0.4),
+      );
+      g.add(cov);
+    }
+    const skirt = cyl(4.5, 4.5, 2.4, ssCorrugated(), 48, true);
+    skirt.position.y = -0.6;
+    g.add(skirt); // the engine skirt
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(4.45, 48),
+      mat("#3a3d41", "dark"),
+    );
+    shield.rotation.x = Math.PI / 2;
+    shield.position.y = -0.15;
+    g.add(shield);
+  },
+};
+Object.assign(STAGE_LOOK, STAGE_LOOK_SS);
+
+// ==== 3b_launchers.js
+// ============================================================================
+// The launchers drawn by hand over their stages' plain geometry (src/vehicles.js, look; called from buildStage with the
+// stage's group, bottom at y = 0, and opts.az: a booster's bearing round the core, radians from +X): Falcon Heavy's
+// cores, the SLS core and boosters, Long March 5's core and boosters. Markings are read off photographs and are
+// approximate; the shapes are from published dimensions.
+// ============================================================================
+// a canvas drawn round a stage: w pixels round, h along it; the drawing's y = 0 is the stage's top
+function skinTex(w, h, draw, repeatY = 1) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d");
+  draw(g, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1, repeatY);
+  return t;
 }
-// ground radius under a direction (km), honouring cap elevations
+// lettering along a stage, reading downward: at u (0…1 round), from v0 to v1 (0 top … 1 bottom), the text as tall as
+// size (a fraction of the width round)
+function skinText(g, w, h, text, u, v0, v1, size, color, font = "bold") {
+  g.save();
+  g.translate(u * w, v0 * h);
+  g.rotate(Math.PI / 2);
+  g.fillStyle = color;
+  g.textBaseline = "middle";
+  const px = size * w;
+  g.font = `${font} ${px}px Helvetica, Arial, sans-serif`;
+  const len = (v1 - v0) * h,
+    tw = g.measureText(text).width;
+  g.scale(len / Math.max(tw, 1), 1);
+  g.fillText(text, 0, 0);
+  g.restore();
+}
+const LN_MATS = {};
+const lnMat = (key, make) => LN_MATS[key] || (LN_MATS[key] = make());
+let lnSeed = 7;
+const lnRnd = () => (lnSeed = (lnSeed * 9301 + 49297) % 233280) / 233280;
+// ---------------- Falcon Heavy ----------------
+// A core: the white tank with SPACEX down one side and the flag, the grey raceway along it, the black engine section round
+// the octaweb (flown expendable, no legs or grid fins). The centre core keeps its black interstage; a side booster's top
+// band is white, under an ogive nose.
+function falconSkinMat() {
+  return lnMat("falcon", () => {
+    const t = skinTex(1024, 4096, (g, w, h) => {
+      g.fillStyle = "#ecebe6";
+      g.fillRect(0, 0, w, h);
+      lnSeed = 7;
+      for (let i = 0; i < 400; i++) {
+        g.fillStyle =
+          lnRnd() > 0.5 ? "rgba(255,255,255,0.35)" : "rgba(120,118,112,0.06)";
+        g.fillRect(
+          lnRnd() * w,
+          lnRnd() * h,
+          2 + lnRnd() * 6,
+          20 + lnRnd() * 160,
+        );
+      } // the tank's faint grain
+      g.fillStyle = "rgba(0,0,0,0.07)";
+      for (const v of [0.06, 0.31, 0.56, 0.62, 0.81])
+        g.fillRect(0, v * h, w, 3); // the welds between the tank's barrels and domes
+      skinText(g, w, h, "SPACEX", 0.27, 0.07, 0.27, 0.085, "#2b2d31");
+      skinText(g, w, h, "FALCON HEAVY", 0.77, 0.09, 0.22, 0.03, "#4b4d52");
+      g.fillStyle = "#b22234";
+      g.fillRect(0.235 * w, 0.29 * h, 0.07 * w, 0.014 * h);
+      g.fillStyle = "#ffffff";
+      for (let i = 1; i < 7; i += 2)
+        g.fillRect(0.235 * w, (0.29 + 0.002 * i) * h, 0.07 * w, 0.002 * h);
+      g.fillStyle = "#3c3b6e";
+      g.fillRect(0.235 * w, 0.29 * h, 0.028 * w, 0.0075 * h); // the flag
+      g.fillStyle = "rgba(0,0,0,0.12)";
+      g.fillRect(0.495 * w, 0, 0.012 * w, h); // the shadow under the raceway
+    });
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+  });
+}
+function falconCore(g, st, opts, centre) {
+  const tank = g.children[0];
+  if (tank && tank.isMesh) tank.material = falconSkinMat();
+  const L0 = st.geom[0][0],
+    r = st.geom[0][1],
+    dark = mat("#17181a", "dark"),
+    grey = mat("#9a9c9f", "metal");
+  if (!centre) {
+    const band = g.children[1];
+    if (band && band.isMesh) band.material = falconSkinMat();
+  } // (no interstage on a side booster)
+  const skirt = cyl(r + 0.01, r + 0.01, 3.4, dark, 48, true);
+  g.add(skirt); // the engine section round the octaweb
+  const plate = new THREE.Mesh(new THREE.CircleGeometry(r, 48), dark);
+  plate.rotation.x = Math.PI / 2;
+  plate.position.y = 0.02;
+  g.add(plate);
+  const race = box(0.32, L0 - 3.4, 0.14, grey);
+  race.position.set(0, 3.4, r);
+  g.add(race); // the raceway, +Z (seen from the pad it runs down the side away from the tower)
+  if (!centre) {
+    // the nose: an ogive over the tank's top ring in place of the plain cone
+    const cone = g.children[2];
+    if (cone && cone.isMesh) {
+      cone.visible = false;
+      const nose = ogive(r, st.geom[2][0] + 1.0, falconSkinMat(), 0.12);
+      nose.position.y = L0 + st.geom[1][0];
+      g.add(nose);
+    }
+  } else {
+    // the centre core's interstage: black, with the separation pushers' housings
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2 + Math.PI / 4;
+      const h = box(0.5, 1.6, 0.35, dark);
+      h.position.set(
+        Math.cos(a) * (r + 0.05),
+        L0 + 1.2,
+        Math.sin(a) * (r + 0.05),
+      );
+      h.rotation.y = -a;
+      g.add(h);
+    }
+  }
+  // the attach hardware between the cores: the nose-level and aft struts' fittings on the side facing the core
+  if (opts && opts.az != null) {
+    const a = opts.az + Math.PI;
+    for (const y of [2.0, L0 - 1.5]) {
+      const f = box(0.9, 1.0, 0.5, grey);
+      f.position.set(Math.cos(a) * (r - 0.1), y, Math.sin(a) * (r - 0.1));
+      f.rotation.y = -a;
+      g.add(f);
+    }
+  }
+}
+// ---------------- SLS Block 1 ----------------
+// The core: the orange spray-on foam over the whole stage, the barrels' seams, the intertank with its stringers and the
+// NASA worm and flag, the engine section with the four RS-25s behind a dark heat shield. A booster: white, five motor
+// segments with their joints, the systems tunnel down its side, the forward frustum and nose cone.

@@ -1,5 +1,5 @@
 // index-inline-2 01 — math
-// Lines 6-257 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 6-270 of readable/index-inline-2.pretty.js (statement-aligned).
 import * as THREE from "./assets/three.module.min.3e690ac7d1.js";
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -38,6 +38,19 @@ const lsGet = (k, d) => {
     return d;
   }
 };
+// run f when the browser is next idle, but within ms at the latest: on a machine where every frame runs long (software
+// rendering, a slow laptop) idle time may never come, and work left to it (the atmosphere tables, the entry glow's points)
+// would never be done
+// the clock the camera moves, the captions and the easing run on: real time, or the film's own clock while frames are
+// being captured one by one (app/90_main.js, STATE.filming)
+const clockMs = () =>
+  typeof STATE !== "undefined" && STATE.filming
+    ? STATE.filmMs
+    : performance.now();
+const whenIdle = (f, ms) =>
+  window.requestIdleCallback
+    ? window.requestIdleCallback(f, { timeout: ms })
+    : setTimeout(f, Math.min(ms, 200));
 const lsSet = (k, v) => {
   try {
     localStorage.setItem(k, JSON.stringify(v));

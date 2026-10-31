@@ -1,5 +1,126 @@
 // index-inline-2 20 — three
-// Lines 5373-5717 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 5337-5688 of readable/index-inline-2.pretty.js (statement-aligned).
+function apolloLES() {
+  const g = new THREE.Group(),
+    white = mat("#ecebe6", "paint"),
+    red = mat("#c4441f", "paint"),
+    black = mat("#151517", "dark");
+  const bpcTop = CM_TOP + 0.08; // the cover closes over the docking tunnel; the tower stands on it
+  const coneTopR = 0.62,
+    coneTopY = CM_CONE.y0 + (CM_CONE.r0 + 0.07 - coneTopR) / CM_CONE.tan;
+  g.add(
+    lathe(
+      [
+        [1.99, 0.02],
+        [1.98, 0.16],
+        [coneTopR, coneTopY],
+        [0.56, bpcTop - 0.06],
+        [0.5, bpcTop],
+        [0, bpcTop],
+      ],
+      white,
+    ),
+  );
+  g.add(
+    cmConePatch(
+      rectShape(0.26, 0.32, 0.04),
+      0.42,
+      1.78,
+      mat("#06080b", "glass"),
+      0.068,
+    ),
+  ); // the commander's window, uncovered
+  const t0 = bpcTop,
+    t1 = t0 + 3.0,
+    rb = 0.62,
+    rt = 0.36;
+  for (let k = 0; k < 4; k++) {
+    const a = Math.PI / 4 + (k * Math.PI) / 2,
+      a2 = a + Math.PI / 2;
+    g.add(
+      lmRodA(
+        [Math.cos(a) * rb, t0, Math.sin(a) * rb],
+        [Math.cos(a) * rt, t1, Math.sin(a) * rt],
+        0.06,
+        red,
+      ),
+    );
+    for (const [y0, y1] of [
+      [t0, t0 + 1.5],
+      [t0 + 1.5, t1],
+    ]) {
+      const r0 = rb + ((rt - rb) * (y0 - t0)) / 3,
+        r1 = rb + ((rt - rb) * (y1 - t0)) / 3;
+      g.add(
+        lmRodA(
+          [Math.cos(a) * r0, y0, Math.sin(a) * r0],
+          [Math.cos(a2) * r1, y1, Math.sin(a2) * r1],
+          0.03,
+          red,
+        ),
+      );
+    }
+  }
+  const m0 = t1;
+  g.add(
+    lathe(
+      [
+        [0.36, m0 - 0.05],
+        [0.42, m0 + 0.15],
+        [0.33, m0 + 0.4],
+      ],
+      black,
+    ),
+  ); // nozzle skirt
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2 + Math.PI / 4,
+      b = bell(0.5, 0.17, black);
+    b.position.set(Math.cos(a) * 0.3, m0 + 0.25, Math.sin(a) * 0.3);
+    b.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6);
+    g.add(b);
+  }
+  const motor = cyl(0.33, 0.33, 4.3, white, 32);
+  motor.position.y = m0 + 0.4;
+  g.add(motor);
+  const band = cyl(0.335, 0.335, 0.25, black, 32);
+  band.position.y = m0 + 3.2;
+  g.add(band);
+  const can = cyl(0.33, 0.27, 1.1, white, 32);
+  can.position.y = m0 + 4.7;
+  g.add(can);
+  for (const s of [-1, 1]) {
+    const c = box(0.03, 0.6, 0.45, white);
+    c.position.set(s * 0.42, m0 + 5.0, 0);
+    g.add(c);
+  } // canards (folded)
+  const nose = lathe(
+    [
+      [0.27, 0],
+      [0.22, 0.45],
+      [0.12, 0.9],
+      [0.05, 1.05],
+      [0, 1.1],
+    ],
+    black,
+  );
+  nose.position.y = m0 + 5.8;
+  g.add(nose);
+  g.userData.top = m0 + 6.9;
+  return g;
+}
+function lmRodA(p0, p1, r, m) {
+  // a cylinder between two points
+  const a = new THREE.Vector3(...p0),
+    b = new THREE.Vector3(...p1),
+    d = b.clone().sub(a);
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(r, r, d.length(), 8),
+    m,
+  );
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return mesh;
+}
 function apolloSM(damaged, stowed = false) {
   // stowed: on the launch pad, the high-gain antenna folded inside the adapter
   const g = new THREE.Group();
@@ -59,6 +180,26 @@ function apolloSM(damaged, stowed = false) {
       b.position.set(d[0] * 0.28, d[1] * 0.31, 0.12);
       q.add(b);
     }
+  }
+  // the two scimitar antennas, blades on the skin low on opposite sides; the CM–SM umbilical's fairing at the top
+  for (const a of [0.55, 0.55 + Math.PI]) {
+    const bl = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.42, 0.04),
+      mat("#d8dadd", "metal"),
+    );
+    bl.position.set(Math.sin(a) * 2.0, 0.9, Math.cos(a) * 2.0);
+    bl.rotation.y = a;
+    g.add(bl);
+  }
+  {
+    const a = 2.7,
+      u = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.9, 0.3),
+        mat("#cfd2d6", "metal"),
+      );
+    u.position.set(Math.sin(a) * 2.05, SM_LEN - 0.4, Math.cos(a) * 2.05);
+    u.rotation.y = a;
+    g.add(u);
   }
   // the high-gain antenna on its boom at the aft end: four dishes round a wide-beam horn
   if (!stowed) {
@@ -211,137 +352,3 @@ const SH_COL = {
 };
 // Where the tyres touch the ground with the gear down, [Y, Z] (from the scan). The nose wheels touch 1.55 m higher than the
 // main wheels, so the orbiter stands 4.4° nose down on its gear.
-const SH_MAIN_CONTACT = [8.8, -6.03],
-  SH_NOSE_CONTACT = [29.0, -4.48],
-  SH_MAIN_TRACK = 3.72; // main wheels ±3.72 m out
-const SH_GEAR_H = -SH_MAIN_CONTACT[1]; // m: the reference plane (Z = 0) above the main wheels' contact, wings level (the flight planner's gear height)
-const SH_STANCE = -Math.atan2(
-  SH_NOSE_CONTACT[1] - SH_MAIN_CONTACT[1],
-  SH_NOSE_CONTACT[0] - SH_MAIN_CONTACT[0],
-); // rad: the attitude on the ground, −4.4°
-// engine nozzle exits (from the scan): [x, exit Y, z]; three RS-25s (2.29 m exits) and the two OMS engines
-const SH_SSME = [
-    [0.02, -1.81, 1.96],
-    [-1.56, -2.49, -0.95],
-    [1.58, -2.47, -1.01],
-  ],
-  SH_OMSE = [
-    [-2.97, -1.0, 2.28],
-    [2.97, -1.0, 2.28],
-  ];
-const SH_BAY = [5.6, 23.9]; // payload bay doors, Y range
-const SH_HINGE = 24 * DEG; // door hinge on the fuselage section (superellipse angle)
-const SH_OMS_X = 2.6; // OMS pod centrelines
-const SH_E = 2 / 2.6,
-  SH_EB = 2 / 4.5; // superellipse exponents: rounded-square top, flat belly
-function vcMat(extra = {}) {
-  return new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.66,
-    metalness: 0.03,
-    ...extra,
-  });
-}
-// colour every vertex of a geometry from its position and normal
-function paintGeo(g, fn) {
-  const p = g.attributes.position,
-    n = g.attributes.normal,
-    c = new Float32Array(p.count * 3),
-    col = new THREE.Color();
-  for (let i = 0; i < p.count; i++) {
-    col.set(
-      fn(p.getX(i), p.getY(i), p.getZ(i), n.getX(i), n.getY(i), n.getZ(i)),
-    );
-    c[3 * i] = col.r;
-    c[3 * i + 1] = col.g;
-    c[3 * i + 2] = col.b;
-  }
-  g.setAttribute("color", new THREE.BufferAttribute(c, 3));
-  return g;
-}
-// point on a fuselage section s = [y, zc, a (half width), bTop, bBot] at angle th (0 = starboard side, 90° = top)
-function shRing(s, th) {
-  const c = Math.cos(th),
-    sn = Math.sin(th);
-  const x = s[2] * Math.sign(c) * Math.pow(Math.abs(c), sn >= 0 ? SH_E : SH_EB);
-  const z =
-    sn >= 0
-      ? s[1] + s[3] * Math.pow(Math.abs(sn), SH_E)
-      : s[1] - s[4] * Math.pow(Math.abs(sn), SH_EB);
-  return [x, s[0], z];
-}
-// lofted surface through sections; skip(yMid, thMid) leaves quads out (the payload bay opening)
-function loftGeo(st, nSeg, skip) {
-  const pos = [],
-    idx = [];
-  for (const s of st)
-    for (let k = 0; k <= nSeg; k++) pos.push(...shRing(s, (k / nSeg) * TAU));
-  for (let i = 0; i < st.length - 1; i++)
-    for (let k = 0; k < nSeg; k++) {
-      if (
-        skip &&
-        skip(0.5 * (st[i][0] + st[i + 1][0]), ((k + 0.5) / nSeg) * TAU)
-      )
-        continue;
-      const a = i * (nSeg + 1) + k,
-        b = a + 1,
-        c = a + nSeg + 1,
-        d = c + 1;
-      idx.push(a, c, b, b, c, d);
-    }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-// flat cap closing a section (facing −Y when back = true)
-function capGeo(s, nSeg, back) {
-  const pos = [0, s[0], s[1]],
-    idx = [];
-  for (let k = 0; k <= nSeg; k++) pos.push(...shRing(s, (k / nSeg) * TAU));
-  for (let k = 1; k <= nSeg; k++)
-    back ? idx.push(0, k, k + 1) : idx.push(0, k + 1, k);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-const SH_STATIONS = [
-  [0.0, 0.35, 3.25, 2.95, 2.95],
-  [2.6, 0.3, 3.1, 2.85, 2.9],
-  [SH_BAY[0], -0.1, 2.62, 2.5, 2.5],
-  [SH_BAY[1], -0.1, 2.62, 2.5, 2.5],
-  [25.0, 0.05, 2.56, 2.75, 2.6],
-  [26.8, 0.35, 2.45, 2.95, 2.75],
-  [28.6, 0.2, 2.2, 2.6, 2.45],
-  [30.3, -0.15, 1.75, 1.95, 2.0],
-  [31.6, -0.55, 1.15, 1.25, 1.45],
-  [32.35, -0.85, 0.6, 0.62, 0.85],
-  [32.75, -1.0, 0.06, 0.06, 0.08],
-];
-function shuttleFuselage() {
-  const bay = (y, th) =>
-    y > SH_BAY[0] && y < SH_BAY[1] && th > SH_HINGE && th < Math.PI - SH_HINGE;
-  const g = loftGeo(SH_STATIONS, 64, bay);
-  paintGeo(g, (x, y, z, nx, ny, nz) => {
-    if (
-      y > 25.6 &&
-      y < 28.9 &&
-      z > 1.95 &&
-      Math.abs(x) < 2.0 &&
-      (nz > 0.3 || ny > 0.35)
-    )
-      return SH_COL.black; // flight-deck windows and their frame
-    if (y > 31.3) return SH_COL.black; // nose cap
-    if (nz < -0.3 || (y > 28.5 && nz < 0.1)) return SH_COL.black; // belly tiles, wrapping up around the chin
-    return SH_COL.white;
-  });
-  const grp = new THREE.Group();
-  grp.add(new THREE.Mesh(g, vcMat()));
-  grp.add(
-    new THREE.Mesh(capGeo(SH_STATIONS[0], 64, true), mat(SH_COL.base, "dark")),
-  ); // base heat shield around the main engines
-  return grp;
-}

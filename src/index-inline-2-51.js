@@ -1,244 +1,336 @@
-// index-inline-2 51 — math
-// Lines 14460-14701 of readable/index-inline-2.pretty.js (statement-aligned).
-function padGround(g, o = {}) {
-  const M = padMats(),
-    R = o.r || 2200;
-  const tex =
-    padGround.tex ||
-    (padGround.tex = stripeTex(
-      (c, w, h) => {
-        // tileable value noise in five octaves (random lattices that wrap at the edges): scrub, grass and bare patches with no
-        // regular pattern to repeat from tile to tile
-        const rnd = mulberry32(5),
-          v = new Float32Array(w * h);
-        for (const [S, amp] of [
-          [4, 0.34],
-          [8, 0.26],
-          [16, 0.18],
-          [32, 0.13],
-          [64, 0.09],
-        ]) {
-          const L = new Float32Array(S * S);
-          for (let i = 0; i < S * S; i++) L[i] = rnd();
-          for (let y = 0; y < h; y++)
-            for (let x = 0; x < w; x++) {
-              const fx = (x / w) * S,
-                fy = (y / h) * S,
-                x0 = Math.floor(fx),
-                y0 = Math.floor(fy),
-                tx = fx - x0,
-                ty = fy - y0,
-                sx = tx * tx * (3 - 2 * tx),
-                sy = ty * ty * (3 - 2 * ty);
-              const a = L[(y0 % S) * S + (x0 % S)],
-                b = L[(y0 % S) * S + ((x0 + 1) % S)],
-                c2 = L[((y0 + 1) % S) * S + (x0 % S)],
-                d = L[((y0 + 1) % S) * S + ((x0 + 1) % S)];
-              v[y * w + x] +=
-                amp *
-                ((a * (1 - sx) + b * sx) * (1 - sy) +
-                  (c2 * (1 - sx) + d * sx) * sy);
-            }
-        }
-        const img = c.createImageData(w, h);
-        for (let i = 0; i < w * h; i++) {
-          const n = clamp((v[i] - 0.5) * 1.6 + 0.5, 0, 1),
-            o4 = 4 * i;
-          img.data[o4] = 92 + 70 * n;
-          img.data[o4 + 1] = 102 + 54 * n;
-          img.data[o4 + 2] = 64 + 38 * n;
-          img.data[o4 + 3] = 255;
-        }
-        c.putImageData(img, 0, 0);
-      },
-      256,
-      256,
-    ));
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const sea = o.sea != null ? o.sea * DEG : null,
-    se = sea != null ? Math.sin(sea) : 0,
-    sn = sea != null ? Math.cos(sea) : 0,
-    shore = o.shore || 1e9;
-  // the land: the disc on this side of the shoreline, as rings of modest triangles (long thin ones lose depth precision
-  // at a distance, and the beach and roads on them flicker)
-  const RINGS = [0, 0.03, 0.07, 0.13, 0.22, 0.35, 0.52, 0.75, 1],
-    NA = 96,
-    pt = (i, j) => {
-      const a = (i * TAU) / NA,
-        r = RINGS[j] * R;
-      let e = Math.sin(a) * r,
-        n = Math.cos(a) * r;
-      const d = e * se + n * sn;
-      if (sea != null && d > shore) {
-        e -= (d - shore) * se;
-        n -= (d - shore) * sn;
-      }
-      return [e, n];
-    };
-  const P = [],
-    U = [],
-    V = (e, n) => {
-      P.push(-e, 0.03, n);
-      U.push(-e / 80, n / 80);
-    };
-  for (let j = 0; j < RINGS.length - 1; j++)
-    for (let i = 0; i < NA; i++) {
-      const a = pt(i, j),
-        b = pt(i + 1, j),
-        c = pt(i + 1, j + 1),
-        d = pt(i, j + 1);
-      V(...a);
-      V(...d);
-      V(...c);
-      if (j > 0) {
-        V(...a);
-        V(...c);
-        V(...b);
-      }
+// index-inline-2 51 — tele
+// Lines 14164-14497 of readable/index-inline-2.pretty.js (statement-aligned).
+function toFrame(frame, t, P) {
+  const B = frameOrigin(frame, t);
+  const d = vsub(P, B);
+  const Rm = frameRot(frame, t);
+  if (!Rm) return d;
+  return [
+    Rm[0] * d[0] + Rm[3] * d[1] + Rm[6] * d[2],
+    Rm[1] * d[0] + Rm[4] * d[1] + Rm[7] * d[2],
+    Rm[2] * d[0] + Rm[5] * d[1] + Rm[8] * d[2],
+  ];
+}
+function chooseAutoFrame(t, P) {
+  const md = MV.md;
+  if (!md) return "earth";
+  const dM = vnorm(vsub(P, helio("moon", t).r)),
+    dE = vnorm(vsub(P, helio("earth", t).r)),
+    dMa = vnorm(vsub(P, helio("mars", t).r));
+  if (dM < BODIES.moon.soi * 1.2 && md.cfg.dest !== "mars") return "moon";
+  if (dMa < BODIES.mars.soi * 1.5) return "mars";
+  if (md.cfg.profile === "l2-halo" && dE > 6e5) return "serot"; // out toward L2 the Sun–Earth frame is the one the halo stands still in
+  if (dE < BODIES.earth.soi * 1.3) return "earth";
+  return "sun";
+}
+function updateTrails(t, focusP, camDist) {
+  const frame =
+    MV.frameSel === "auto" ? chooseAutoFrame(t, focusP) : MV.frameSel;
+  const show = MV.layers.paths;
+  const f = toFrame(frame, t, focusP);
+  const pr = R.renderer.getPixelRatio();
+  R.renderer.getDrawingBufferSize(_v2);
+  TRAIL_U.uRes.value.copy(_v2);
+  TRAIL_U.uWidth.value = 4.2 * pr;
+  TRAIL_U.uMk.value = 10 * pr;
+  for (const tr of MV.trails) {
+    tr.line.visible = show && (MV.layers.future || t >= tr.o.t0);
+    if (!tr.line.visible) continue;
+    if (tr.byPhase !== !!MV.layers.phasecol) {
+      tr.colorize();
+      tr.anchor = null;
+    } // rebuild with the new colours
+    const need =
+      tr.frame !== frame ||
+      !tr.anchor ||
+      vnorm(vsub(f, tr.anchor)) > Math.max(2000, camDist * 2e3) ||
+      (TRAIL_U.uWinP.value < 1e11 &&
+        !(Math.abs(t - tr.builtT) < TRAIL_PAD * 0.75));
+    if (need) tr.build(frame, f, t);
+    const B = frameOrigin(frame, t);
+    const O = R.O;
+    const Rm = frameRot(frame, t);
+    if (Rm) {
+      const A = tr.anchor;
+      const wa = [
+        Rm[0] * A[0] + Rm[1] * A[1] + Rm[2] * A[2],
+        Rm[3] * A[0] + Rm[4] * A[1] + Rm[5] * A[2],
+        Rm[6] * A[0] + Rm[7] * A[1] + Rm[8] * A[2],
+      ];
+      tr.line.position.set(
+        B[0] + wa[0] - O[0],
+        B[1] + wa[1] - O[1],
+        B[2] + wa[2] - O[2],
+      );
+      _m4.set(
+        Rm[0],
+        Rm[1],
+        Rm[2],
+        0,
+        Rm[3],
+        Rm[4],
+        Rm[5],
+        0,
+        Rm[6],
+        Rm[7],
+        Rm[8],
+        0,
+        0,
+        0,
+        0,
+        1,
+      );
+      tr.line.quaternion.setFromRotationMatrix(_m4);
+    } else {
+      tr.line.position.set(
+        B[0] + tr.anchor[0] - O[0],
+        B[1] + tr.anchor[1] - O[1],
+        B[2] + tr.anchor[2] - O[2],
+      );
+      tr.line.quaternion.identity();
     }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2));
-  geo.computeVertexNormals();
-  if (!padGround.mat) {
-    // the texture again at two larger scales, so its 80-m tiles do not show as a grid
-    const m = (padGround.mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      roughness: 0.95,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    }));
-    m.onBeforeCompile = (s) => {
-      s.fragmentShader = s.fragmentShader
-        .replace("#include <logdepthbuf_fragment>", LOGDEPTH_EXACT)
-        .replace(
-          "#include <map_fragment>",
-          `#include <map_fragment>
-      float pgA = texture2D(map, vMapUv * 0.071 + vec2(0.37, 0.11)).g, pgB = texture2D(map, vMapUv * 0.23 + vec2(0.71, 0.53)).g;
-      diffuseColor.rgb *= 0.45 + 0.55 * (pgA + pgB) / (2.0 * 0.2);`,
-        );
-    };
-    m.customProgramCacheKey = () => "padGround";
+    tr.mat.uniforms.uNow.value = t - MV.md.M.t0;
+    tr.mat.uniforms.uFuture.value = MV.layers.future ? 0.42 : 0;
   }
-  const land = new THREE.Mesh(geo, padGround.mat);
-  g.add(land);
-  const k = padKit();
-  // strips on the land (the beach along the shoreline, the roads), cut into pieces of about 80 m for the same reason
-  const strip = (m, e0, n0, e1, n1, w, y) => {
-    const dx = e1 - e0,
-      dn = n1 - n0,
-      l = Math.hypot(dx, dn),
-      px = ((-dn / l) * w) / 2,
-      pn = ((dx / l) * w) / 2,
-      ns = Math.max(1, Math.ceil(l / 80));
-    for (let s = 0; s < ns; s++) {
-      const f0 = s / ns,
-        f1 = (s + 1) / ns,
-        A0 = e0 + dx * f0,
-        B0 = n0 + dn * f0,
-        A1 = e0 + dx * f1,
-        B1 = n0 + dn * f1;
-      k.quads(m, [
-        [
-          PV(A0 + px, y, B0 + pn),
-          PV(A1 + px, y, B1 + pn),
-          PV(A1 - px, y, B1 - pn),
-          PV(A0 - px, y, B0 - pn),
-        ],
-      ]);
-    }
-  };
-  if (sea != null) {
-    const L = Math.sqrt(Math.max(R * R - shore * shore, 0)),
-      b = 45,
-      c = shore - b / 2; // the beach along the shoreline
-    strip(
-      M.sand,
-      c * se + sn * L,
-      c * sn - se * L,
-      c * se - sn * L,
-      c * sn + se * L,
-      b,
-      0.07,
+  MV.frame = frame;
+}
+
+// ---------------- osculating orbit ----------------
+function dominantBody(P, t) {
+  const dM = vnorm(vsub(P, helio("moon", t).r));
+  if (dM < BODIES.moon.soi) return "moon";
+  const dE = vnorm(vsub(P, helio("earth", t).r));
+  if (dE < BODIES.earth.soi) return "earth";
+  const dMa = vnorm(vsub(P, helio("mars", t).r));
+  if (dMa < BODIES.mars.soi) return "mars";
+  return "sun";
+}
+function updateOsc(c, t) {
+  if (!MV.osc) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(3 * 721), 3),
     );
+    MV.osc = new THREE.Line(
+      g,
+      new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      }),
+    );
+    MV.osc.frustumCulled = false;
+    R.scene.add(MV.osc);
   }
-  for (const [e0, n0, e1, n1, w] of o.roads || [])
-    strip(o.roadMat || M.rock, e0, n0, e1, n1, w, 0.1);
-  k.build(g);
+  const L = MV.osc;
+  if (!MV.layers.osc || !c || !c.s || !c.P || c.s.surface) {
+    L.visible = false;
+    return;
+  }
+  const b = dominantBody(c.P, t);
+  const B = helio(b, t);
+  const r = vsub(c.P, B.r),
+    v = vsub(vadd(helio(c.s.ref, t).v, c.s.v), B.v);
+  const mu = BODIES[b].mu;
+  const el = rv2coe(r, v, mu);
+  const arr = L.geometry.attributes.position.array;
+  // anchor at the craft to keep precision near it
+  let nmax;
+  if (el.e < 0.999) {
+    for (let i = 0; i <= 720; i++) {
+      const p = coe2rv(el.p, el.e, el.i, el.Om, el.w, (i / 720) * TAU, mu).r;
+      arr[3 * i] = p[0] - r[0];
+      arr[3 * i + 1] = p[1] - r[1];
+      arr[3 * i + 2] = p[2] - r[2];
+    }
+    nmax = 721;
+  } else {
+    const nuMax = Math.acos(-1 / el.e) - 0.02;
+    for (let i = 0; i <= 720; i++) {
+      const nu = -nuMax + (2 * nuMax * i) / 720;
+      const p = coe2rv(el.p, el.e, el.i, el.Om, el.w, nu, mu).r;
+      const k = vnorm(p) > 5 * (BODIES[b].soi || 1e9) ? 0 : 1;
+      arr[3 * i] = (p[0] - r[0]) * k;
+      arr[3 * i + 1] = (p[1] - r[1]) * k;
+      arr[3 * i + 2] = (p[2] - r[2]) * k;
+    }
+    nmax = 721;
+  }
+  L.geometry.attributes.position.needsUpdate = true;
+  L.geometry.setDrawRange(0, nmax);
+  const O = R.O;
+  L.position.set(c.P[0] - O[0], c.P[1] - O[1], c.P[2] - O[2]);
+  L.visible = true;
+  MV.oscEl = { body: b, el };
 }
-// Launch Complex 39's raised pad: a flat concrete top 99 m east–west by 119 m north–south, h above the ground on a mound
-// sloping out at 1 in 2.5 (grassed); the flame trench, 17.7 m wide with its floor at ground level, cut through it north–
-// south, the flame deflector in it under the vehicle; the crawlerway climbing to it from the south at 5 %, its two lanes
-// either side of the trench.
-function ksc39Hardstand(k, h, glow) {
-  const M = padMats(),
-    W = 99.1 / 2,
-    D = 118.9 / 2,
-    tw = 17.7 / 2,
-    s = 2.5 * h;
-  for (const sd of [-1, 1]) {
-    // the east and west halves, either side of the trench
-    const P = (e, y, n) => PV(sd * e, y, n);
-    const A = P(tw, h, -D),
-      B = P(W, h, -D),
-      C = P(W, h, D),
-      Dd = P(tw, h, D),
-      A0 = P(tw, 0, -D - s),
-      B0 = P(W + s, 0, -D - s),
-      C0 = P(W + s, 0, D + s),
-      D0 = P(tw, 0, D + s);
-    const out = PV(sd, 0.4, 0).normalize();
-    k.quads(M.concrete, [[A, Dd, C, B]]);
-    k.quads(M.grass, [[B, C, C0, B0]], out);
-    k.quads(M.grass, [[Dd, D0, C0, C]], new THREE.Vector3(0, 0.4, 1));
-    k.quads(M.grass, [[A, B, B0, A0]], new THREE.Vector3(0, 0.4, -1));
-    k.quads(M.concreteD, [[A, A0, D0, Dd]], PV(-sd, 0, 0)); // the trench wall
+
+// ---------------- vectors (velocity, gravity, thrust, drag) ----------------
+const VEC_DEF = [
+  { id: "vel", name: "velocity", color: "#5fe3a1" },
+  { id: "g:earth", name: "g Earth", color: "#5cc8ff" },
+  { id: "g:moon", name: "g Moon", color: "#d6d6d6" },
+  { id: "g:sun", name: "g Sun", color: "#ffd27a" },
+  { id: "g:mars", name: "g Mars", color: "#ff8a5c" },
+  { id: "thrust", name: "thrust", color: "#ff9f43" },
+  { id: "drag", name: "drag", color: "#ff6767" },
+];
+function initVectors() {
+  MV.vecs = VEC_DEF.map((d) => {
+    const a = new THREE.ArrowHelper(
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(),
+      1,
+      new THREE.Color(d.color),
+      0.18,
+      0.08,
+    );
+    a.visible = false;
+    a.line.material.depthTest = false;
+    a.cone.material.depthTest = false;
+    a.renderOrder = 20;
+    a.line.renderOrder = 20;
+    a.cone.renderOrder = 20;
+    R.scene.add(a);
+    const lab = h("div", { class: "vlbl", style: `color:${d.color}` });
+    $("#vecLabels").append(lab);
+    return { ...d, arrow: a, lab };
+  });
+}
+function updateVectors(c, t, tele) {
+  const show = MV.layers.vectors && c && c.P && tele;
+  for (const v of MV.vecs) {
+    v.arrow.visible = false;
+    v.lab.style.transform = "translate(-9999px,0)";
   }
-  k.box(M.soot, 0, 0, 0, 2 * tw, 0.08, 2 * (D + s) + 40); // the trench floor
-  // the flame deflector: an inverted V across the trench, its ridge under the engines
-  const dw = 14.9 / 2,
-    dl = 22.9 / 2,
-    dh = Math.min(11.9, h - 0.5);
-  k.quads(
-    glow,
-    [[PV(dw, dh, 0), PV(-dw, dh, 0), PV(-dw, 0, dl), PV(dw, 0, dl)]],
-    new THREE.Vector3(0, 1, 1),
-  );
-  k.quads(
-    glow,
-    [[PV(-dw, dh, 0), PV(dw, dh, 0), PV(dw, 0, -dl), PV(-dw, 0, -dl)]],
-    new THREE.Vector3(0, 1, -1),
-  ); // glowing while the engines fire
-  // the ramp up the south side, two 12-m lanes of crushed river rock either side of the trench
-  const rl = h / 0.05;
-  for (const sd of [-1, 1]) {
-    const e0 = sd * (tw + 1),
-      e1 = sd * (tw + 13);
-    k.quads(M.rock, [
-      [
-        PV(e0, h + 0.05, -D),
-        PV(e1, h + 0.05, -D),
-        PV(e1, 0.05, -D - rl),
-        PV(e0, 0.05, -D - rl),
-      ],
-    ]);
+  if (!show) return;
+  const camD = R.camera.position.distanceTo(c.node.position);
+  const base = camD * 0.16;
+  const pos = c.node.position;
+  const items = [];
+  // (not on the pad or the ground: the inertial velocity there is the planet's spin, an arrow lying sideways out of a vehicle that is standing still)
+  if (!(c.s && (c.s.pad || c.s.surface)))
+    items.push({
+      id: "vel",
+      dir: tele.vRel,
+      mag: vnorm(tele.vRel),
+      txt: fSpeed(vnorm(tele.vRel)),
+      scale: 1,
+    });
+  const gmax = Math.max(...tele.grav.map((g) => g.a));
+  for (const g of tele.grav) {
+    if (!["earth", "moon", "sun", "mars"].includes(g.body)) continue;
+    if (g.a < gmax * 1e-3) continue;
+    items.push({
+      id: "g:" + g.body,
+      dir: g.dir,
+      mag: g.a,
+      txt: fAcc(g.a),
+      scale: clamp(
+        0.45 + 0.18 * Math.log10((g.a / gmax) * 1000 + 1e-9),
+        0.2,
+        1,
+      ),
+    });
+  }
+  if (tele.thrustAcc > 0)
+    items.push({
+      id: "thrust",
+      dir: tele.thrustDir,
+      mag: tele.thrustAcc,
+      txt: fAcc(tele.thrustAcc),
+      scale: clamp(
+        0.5 + 0.2 * Math.log10(tele.thrustAcc / 9.81 + 1e-6),
+        0.3,
+        1.1,
+      ),
+    });
+  if (tele.dragAcc > 1e-4)
+    items.push({
+      id: "drag",
+      dir: tele.dragDir,
+      mag: tele.dragAcc,
+      txt: fAcc(tele.dragAcc),
+      scale: clamp(
+        0.5 + 0.2 * Math.log10(tele.dragAcc / 9.81 + 1e-6),
+        0.2,
+        1.0,
+      ),
+    });
+  const W = R.width,
+    Hh = R.height;
+  for (const it of items) {
+    const v = MV.vecs.find((x) => x.id === it.id);
+    if (!v || !it.dir || vnorm(it.dir) < 1e-12) continue;
+    const d = vunit(it.dir);
+    const len = base * it.scale;
+    v.arrow.position.copy(pos);
+    v.arrow.setDirection(new THREE.Vector3(d[0], d[1], d[2]));
+    v.arrow.setLength(len, len * 0.16, len * 0.07);
+    v.arrow.visible = true;
+    const tip = pos
+      .clone()
+      .add(new THREE.Vector3(d[0], d[1], d[2]).multiplyScalar(len * 1.04))
+      .project(R.camera);
+    if (tip.z < 1 && tip.z > -1) {
+      const x = ((tip.x + 1) / 2) * W,
+        y = ((1 - tip.y) / 2) * Hh;
+      v.lab.textContent = `${v.name} ${it.txt}`;
+      v.lab.style.transform = `translate(${x + 4}px, ${y - 8}px)`;
+    }
   }
 }
-// the land round Pads 39A and 39B: the Atlantic 400 m to the east, the crawlerway from the foot of the ramp south and then
-// west toward the Vehicle Assembly Building; out to 7 km, past the ground observer (6 km south-southwest)
-const KSC_GROUND = (h) => ({
-  r: 7000,
-  sea: 75,
-  shore: 420,
-  roads: [
-    [0, -59.5 - 2.5 * h - h / 0.05, 0, -560, 40],
-    [0, -560, -5000, -560, 40],
-  ],
-});
-// ---------------- Apollo: Mobile Launcher with its Launch Umbilical Tower on Pad 39A ----------------
-// The launcher's base 48.8 m (north–south) × 41.1 m × 7.6 m on six 6.7-m pedestals, its deck 14.3 m above the pad, with a
-// 13.7-m square opening for the exhaust; the red umbilical tower, 12.2 m square, rises 115.8 m from the deck at the north
-// end, its centre 24.4 m north of the rocket's, with the 25-t hammerhead crane on top. Nine swing arms reach the rocket:
-// four had swung clear before liftoff (the first stage's intertank and forward arms, the second stage's aft arm, the
-// command module's access arm with its white room), five swung away in the seconds after it. Four hold-down arms (3.35 m)
-// carry the first stage; three tail service masts stand between its fins.
+
+// ---------------- labels ----------------
+function initBodyLabels() {
+  MV.bodyLabels = BODY_LIST.map((name) => {
+    const el = h(
+      "div",
+      { class: "lbl body", style: `color:${BODY_COLORS[name]}` },
+      h("span", { class: "dot" }),
+      h("span", null, BODIES[name].name),
+    );
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setTarget("body:" + name);
+    });
+    $("#labels").append(el);
+    return { name, el };
+  });
+}
+// the Sun–Earth L2 point: a label with its dot, out past the Earth on the anti-Sun line, shown in the Sun–Earth frame
+// and, on a flight bound there, whenever the camera is far enough out to see the region
+const _l2v = new THREE.Vector3();
+function updateL2(t, camDist) {
+  if (!MV.l2) {
+    const el = h(
+      "div",
+      { class: "lbl body", style: "color:#9ab8ff" },
+      h("span", { class: "dot" }),
+      h("span", null, "Sun–Earth L2"),
+    );
+    $("#labels").append(el);
+    MV.l2 = { el };
+  }
+  const md = MV.md,
+    el = MV.l2.el;
+  const show =
+    MV.layers.labels &&
+    md &&
+    (MV.frame === "serot" || (md.cfg.profile === "l2-halo" && camDist > 2e5));
+  if (!show) {
+    el.style.transform = "translate(-9999px,0)";
+    return;
+  }
+  const E = helio("earth", t).r,
+    L = l2Point(t),
+    O = R.O;
+  _l2v.set(E[0] + L[0] - O[0], E[1] + L[1] - O[1], E[2] + L[2] - O[2]);
+  if (occluded(_l2v)) {
+    el.style.transform = "translate(-9999px,0)";
+    return;
+  }
+  placeLabel(el, _l2v, [], 3);
+}
+const _pv = new THREE.Vector3();

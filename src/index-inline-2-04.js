@@ -1,5 +1,5 @@
 // index-inline-2 04 — math
-// Lines 792-965 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 805-978 of readable/index-inline-2.pretty.js (statement-aligned).
 const AT_W = 128,
   AT_H = 32,
   AM_W = 32,

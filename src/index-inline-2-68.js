@@ -1,343 +1,280 @@
-// index-inline-2 68 — cam
-// Lines 19321-19661 of readable/index-inline-2.pretty.js (statement-aligned).
-function initTimeline() {
-  const el = $("#timeline");
-  const hov = $("#tlHover");
-  let drag = false;
-  const tAt = (e) => {
-    const r = el.getBoundingClientRect();
-    return tlT((e.clientX - r.left - 6) / (r.width - 12));
-  };
-  el.addEventListener("pointerdown", (e) => {
-    if (!MV.md) return;
-    drag = true;
-    el.setPointerCapture(e.pointerId);
-    setTime(tAt(e));
-  });
-  el.addEventListener("pointermove", (e) => {
-    if (!MV.md || !TL.map) return;
-    const t = tAt(e);
-    if (drag) setTime(t);
-    const md = MV.md;
-    let near = null,
-      nd = 1e9;
-    const r = el.getBoundingClientRect();
-    for (const ev of md.events) {
-      const d = Math.abs(tlX(ev.t) * (r.width - 12) + 6 - (e.clientX - r.left));
-      if (d < nd) {
-        nd = d;
-        near = ev;
-      }
+// index-inline-2 68 — exh
+// Lines 19446-19723 of readable/index-inline-2.pretty.js (statement-aligned).
+const GLSL_PUFF_V = `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec3 aUV; attribute float aTau; attribute vec3 aSun; attribute vec3 aAmb; attribute float aFog; attribute float aFade; attribute vec3 aN;
+varying vec3 vUV; varying float vTau; varying vec3 vSun; varying vec3 vAmb; varying float vFog; varying vec3 vWP; varying float vFade; varying vec3 vN;
+void main(){ vUV = aUV; vTau = aTau; vSun = aSun; vAmb = aAmb; vFog = aFog; vFade = aFade; vN = mat3(modelMatrix) * aN;
+  vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp;
+#include <logdepthbuf_vertex>
+}`;
+const GLSL_PUFF_F = `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+${GLSL_EXH_COMMON}
+varying vec3 vN;
+void main(){
+  #include <logdepthbuf_fragment>
+  vec2 q = vUV.xy; float n = bil(q * 0.45 + vec2(vUV.z * 0.137, vUV.z * 0.071));
+  float n2 = bil(q * 1.4 + vec2(vUV.z * 0.311, vUV.z * 0.197)); // finer billows, which eat into the outline
+  float rEdge = 0.75 * (0.7 + 0.6 * n), x = length(q) / rEdge; if (x >= 1.0) discard; // the puff's radius is 0.75 of the quad's half-size
+  float chord = sqrt(1.0 - x * x);
+  vec3 V = normalize(cameraPosition - vWP), right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]), up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+  // the outline: faded over most of the radius and eroded by the finer billows, so no puff reads as a disc
+  float edge = (1.0 - smoothstep(0.25, 1.0, x)) * smoothstep(0.12, 0.55, n2 + 0.6 * (1.0 - x));
+  // the shading: a soft blob is nearly flat, but where the puff knows which way it bulges out of its cloud (aN, the
+  // launch cloud's rolling mass) it is lit as that surface, with the finer billows modelling it
+  vec3 Nf = normalize(0.4 * (right * q.x + up * q.y) / rEdge + V * chord);
+  float hasN = step(0.5, length(vN));
+  vec3 Nc = normalize(mix(Nf, normalize(vN + 1.1 * (right * (n2 - 0.5) + up * (n - 0.5))), 0.75 * hasN));
+  vec4 c = smoke(vTau * chord * (0.45 + 1.1 * n), edge, Nc, n);
+  c.rgb *= mix(1.0, 0.55 + 0.5 * smoothstep(0.2, 0.8, n2), hasN); // the clefts between the billows, where less light gets in
+  if (max(max(c.r, c.g), c.b) < 0.0015 && c.a < 0.002) discard;
+  gl_FragColor = vec4(c.rgb, 1.0);
+  #include <colorspace_fragment>
+  gl_FragColor.a = c.a;
+}`;
+const EXH_PUFF_H = [50, 68]; // km: the ribbon gives way to puffs between these heights
+const EXH_SUB = 400; // points the ribbon may add between samples near the engines
+function disposeExhaust() {
+  for (const k of ["mesh", "puffs"])
+    if (EXH[k]) {
+      R.scene.remove(EXH[k]);
+      EXH[k].geometry.dispose();
+      EXH[k].material.dispose();
+      EXH[k] = null;
     }
-    const ph = md.phaseAt(t);
-    const px = e.clientX - r.left;
-    let burn = null;
-    for (const x of md.powered) {
-      const a = tlX(x.t0) * (r.width - 12) + 6,
-        b = tlX(x.t1) * (r.width - 12) + 6;
-      if (px >= a - 3 && px <= b + 3) {
-        burn = x;
-        break;
-      }
+  EXH.n = 0;
+}
+// Samples along the ascent, from liftoff until the vehicle reaches orbit (or rises out of the atmosphere's reach): where the
+// engines were, their exhaust's spread, thickness, colour and lifetime, the wind there, a coordinate along the trail for the
+// billows.
+function buildExhaust(md) {
+  disposeExhaust();
+  const c = craftById("ship"),
+    L = md.L,
+    site = LAUNCH_SITES[md.cfg.site];
+  if (!c || !L || !site || !c.o.segs.length) return;
+  const asc = c.o.segs[0];
+  if (!asc.meta || asc.meta.phase !== "ascent") return;
+  const t0 = md.M.t0,
+    R0 = BODIES.earth.R,
+    stand = padStandH() / 1000;
+  let seed = 0;
+  for (const ch of md.cfg.launch + md.cfg.site)
+    seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+  const wind = exhWind(seed);
+  const bst = L.stages[0].parallel ? L.stages[0] : null;
+  const base =
+    3.5 *
+    Math.max(
+      L.diameter,
+      bst && bst.booster ? 2 * (bst.booster.offset + bst.geom[0][1]) : 0,
+    ); // m: the column just behind the engines
+  const S = [];
+  let te = t0 + 0.05,
+    u = 0,
+    prev = null,
+    dtP = 0,
+    vP = 0;
+  while (te < asc.t1) {
+    const { s, flows } = exhFlows(c, L, te, t0);
+    if (!s) break;
+    const h = vnorm(s.r) - R0;
+    if (h > 450) break;
+    const om = bodyOmegaEcl("earth", te),
+      va = vsub(s.v, vcross(om, s.r)),
+      vAir = vnorm(va) * 1000;
+    const ax = s.dir && vnorm(s.dir) > 0.5 ? vunit(s.dir) : vunit(s.r);
+    const r = vadd(s.r, vscale(ax, stand)); // the engines: the stack stands on its state point (app/40_missionview.js anchorY)
+    const w0 = exhW0(base, h),
+      ice = exhIce(h);
+    let kf = 0,
+      life = 0,
+      col = [0, 0, 0];
+    for (const [p, f] of flows) {
+      const P = EXH_PROP[p] || EXH_PROP.kerolox,
+        k = (P.k + P.ice * ice) * f;
+      kf += k;
+      life += P.life * k;
+      for (let j = 0; j < 3; j++) col[j] += P.col[j] * k;
     }
-    hov.style.display = "block";
-    hov.style.left = px + "px";
-    hov.textContent = `${fMET(t - md.M.t0)} · ${ph ? ph.name : ""}${burn ? " · ENGINE ON: " + burn.name : near && nd < 6 ? " · " + near.name : ""}`;
-  });
-  const end = () => {
-    drag = false;
-  };
-  el.addEventListener("pointerup", end);
-  el.addEventListener("pointercancel", end);
-  el.addEventListener("pointerleave", () => {
-    hov.style.display = "none";
-  });
-}
-// ---------------- captions ----------------
-const CAP = { until: 0, ev: null };
-function showCaption(e) {
-  if (!MV.layers.captions) return;
-  const el = $("#caption");
-  el.querySelector(".cap-name").textContent = e.name;
-  let d = e.desc || "";
-  const sentences = d.split(/(?<=[.!?”])\s+/);
-  d = sentences.slice(0, 2).join(" ");
-  el.querySelector(".cap-desc").textContent = d;
-  el.classList.remove("fade");
-  CAP.until = performance.now() + clamp(3500 + d.length * 45, 4000, 11000);
-  CAP.ev = e;
-}
-function updateCaption() {
-  if (CAP.until && performance.now() > CAP.until) {
-    $("#caption").classList.add("fade");
-    CAP.until = 0;
+    if (kf > 0) {
+      life /= kf;
+      col = col.map((x) => x / kf);
+    } else {
+      life = 600;
+      col = [0.9, 0.9, 0.9];
+    }
+    life *= 1 + 2 * smoothstep((h - 60) / 40); // ice high up lasts
+    const tau0 = (EXH_C * kf) / Math.max(vAir, 15) / w0;
+    const lf = localFrame("earth", s.r, te),
+      [we, wn] = wind(h),
+      dW = vscale(vadd(vscale(lf.east, we), vscale(lf.north, wn)), 0.001); // km/s
+    if (prev)
+      u += (0.5 * (vAir + vP) * dtP) / Math.max(0.5 * (w0 + prev.w0), 1); // along the path through the air, in trail widths
+    const x = { te, r, dW, h, w0, tau0, col, life, u, vx: exhVx(h) };
+    S.push(x);
+    prev = x;
+    dtP = clamp((0.35 * w0) / Math.max(vAir, 1), 0.08, 2.5);
+    vP = vAir;
+    te += dtP;
   }
-}
-// ---------------- storyboard ----------------
-const SHOTS = { list: [], key: "" };
-function shotsKey() {
-  return (
-    "mstudio-shots-" + (MV.md ? (MV.md.scn ? MV.md.scn.id : "custom") : "none")
-  );
-}
-function loadShots() {
-  SHOTS.key = shotsKey();
-  SHOTS.list = lsGet(SHOTS.key, []) || [];
-  renderShots();
-}
-function saveShots() {
-  if (!lsSet(SHOTS.key, SHOTS.list)) {
-    /* storage full: keep in memory */
+  if (S.length < 2) return;
+  EXH.n = S.length;
+  EXH.t0 = t0;
+  EXH.t1 = asc.t1;
+  const N = S.length,
+    F = (k) => new Float64Array(k * N); // the samples as flat arrays, for the work done every frame
+  const NR = N + 1 + EXH_SUB; // the ribbon's points: kept samples and the extra ones near the engines
+  Object.assign(EXH, {
+    TE: F(1),
+    RX: F(3),
+    DW: F(3),
+    W0: F(1),
+    TAU0: F(1),
+    LIFE: F(1),
+    U: F(1),
+    VX: F(1),
+    H: F(1),
+    COL: F(3),
+    P: new Float64Array(3 * (N + 1)),
+    dH: new Float64Array(N + 1),
+    W: new Float64Array(N + 1),
+    keep: new Int32Array(N + 1),
+    ra: new Int32Array(NR),
+    rb: new Int32Array(NR),
+    rf: new Float64Array(NR),
+    rg: new Float64Array(3 * NR),
+  });
+  S.forEach((x, i) => {
+    EXH.TE[i] = x.te;
+    EXH.W0[i] = x.w0;
+    EXH.TAU0[i] = x.tau0;
+    EXH.LIFE[i] = x.life;
+    EXH.U[i] = x.u;
+    EXH.VX[i] = x.vx;
+    EXH.H[i] = x.h;
+    for (let k = 0; k < 3; k++) {
+      EXH.RX[3 * i + k] = x.r[k];
+      EXH.DW[3 * i + k] = x.dW[k];
+      EXH.COL[3 * i + k] = x.col[k];
+    }
+  });
+  const cap = NR;
+  const g = new THREE.BufferGeometry(),
+    A = (k) =>
+      new THREE.BufferAttribute(new Float32Array(2 * cap * k), k).setUsage(
+        THREE.DynamicDrawUsage,
+      );
+  g.setAttribute("position", A(3));
+  g.setAttribute("aUV", A(3));
+  g.setAttribute("aTau", A(1));
+  g.setAttribute("aSun", A(3));
+  g.setAttribute("aAmb", A(3));
+  g.setAttribute("aFog", A(1));
+  g.setAttribute("aSide", A(3));
+  g.setAttribute("aFade", A(1));
+  const idx = new Uint32Array(6 * (cap - 1));
+  for (let i = 0; i < cap - 1; i++) {
+    const a = 2 * i;
+    idx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], 6 * i);
   }
-}
-function camDesc(c) {
-  const lens = `${Math.round(c.lens)} mm`;
-  const tgt = c.target.startsWith("obj:")
-    ? (MV.md.M.obj(c.target.slice(4)) || {}).name || c.target
-    : BODIES[c.target.slice(5)].name;
-  const mode = {
-    orbit: "Orbit cam",
-    chase: "Chase cam",
-    lookat: "Look-at",
-    ground: "Ground observer",
-    top: "Top-down map",
-  }[c.mode];
-  return `${mode} · ${lens} · on ${tgt}${c.mode === "lookat" ? " → " + (c.look.startsWith("body:") ? BODIES[c.look.slice(5)].name : c.look.slice(4)) : ""}`;
-}
-function captureShot() {
-  const md = MV.md;
-  if (!md) return;
-  renderFrame(true);
-  const src = R.renderer.domElement;
-  const pr = R.renderer.getPixelRatio();
-  const fr = frameRect();
-  const sx = fr.x * pr,
-    sy = fr.y * pr,
-    sw = fr.w * pr,
-    sh = fr.h * pr;
-  const W = 960,
-    Hh = Math.round((W * fr.h) / fr.w);
-  const cv = document.createElement("canvas");
-  cv.width = W;
-  cv.height = Hh;
-  const g = cv.getContext("2d");
-  g.drawImage(src, sx, sy, sw, sh, 0, 0, W, Hh);
-  const t = STATE.t;
-  const ph = md.phaseAt(t);
-  const prevEv = [...md.events]
-    .reverse()
-    .find((e) => e.t <= t && t - e.t < 1800);
-  const ps = PSTAT.cur;
-  const propTxt = ps
-    ? ps.k === "burn"
-      ? `${ps.l}: ${String(ps.name || "")
-          .split("—")[0]
-          .trim()}`
-      : ps.l
-    : "";
-  const camS = {
-    mode: CAM.mode,
-    target: CAM.target,
-    look: CAM.look,
-    lens: CAM.lens,
-    az: CAM.az,
-    el: CAM.el,
-    dist: CAM.dist,
-    roll: CAM.roll,
-    aspect: CAM.aspect,
-    ground: { ...CAM.ground },
-  };
-  const n = SHOTS.list.length ? Math.max(...SHOTS.list.map((s) => s.n)) + 1 : 1;
-  // slate strip
-  g.fillStyle = "rgba(0,0,0,.55)";
-  g.fillRect(0, Hh - 26, W, 26);
-  g.fillStyle = "#ffb547";
-  g.font = '600 14px "IBM Plex Mono", monospace';
-  g.fillText(`SHOT ${n}`, 10, Hh - 8);
-  g.fillStyle = "#e6ecf5";
-  g.font = '13px "IBM Plex Mono", monospace';
-  g.fillText(
-    `${fMET(t - md.M.t0)}  ·  ${camDesc(camS)}  ·  ${ph ? ph.name : ""}${propTxt ? "  ·  " + propTxt : ""}`,
-    92,
-    Hh - 8,
-  );
-  const img = cv.toDataURL("image/jpeg", 0.82);
-  const shot = {
-    n,
-    t,
-    met: fMET(t - md.M.t0),
-    utc: fmtUTC(t),
-    phase: ph ? ph.name : "",
-    prop: propTxt,
-    cam: camS,
-    img,
-    caption: prevEv ? prevEv.name + " — " : ph ? ph.name + " — " : "",
-    w: W,
-    h: Hh,
-  };
-  SHOTS.list.push(shot);
-  saveShots();
-  renderShots();
-  const b = $("#bShot");
-  b.textContent = "✓ Saved";
-  setTimeout(() => {
-    b.textContent = "● Shot";
-  }, 900);
-  const flash = h("div", {
-    style:
-      "position:absolute;inset:0;background:#fff;opacity:.35;pointer-events:none;transition:opacity .35s;z-index:30",
-  });
-  $("#app").append(flash);
-  requestAnimationFrame(() => {
-    flash.style.opacity = "0";
-    setTimeout(() => flash.remove(), 400);
-  });
-}
-function gotoShot(s) {
-  Object.assign(CAM, {
-    mode: s.cam.mode,
-    target: s.cam.target,
-    look: s.cam.look,
-    lens: s.cam.lens,
-    az: s.cam.az,
-    el: s.cam.el,
-    dist: s.cam.dist,
-    roll: s.cam.roll || 0,
-    aspect: s.cam.aspect || 0,
-  });
-  CAM.ground = { ...s.cam.ground };
-  CAM.trans = null;
-  $("#selAspect").value = String(CAM.aspect || 0);
-  applyLens();
-  syncCamUI();
-  setTime(s.t);
-  STATE.playing = false;
-  syncPlayUI();
-}
-function renderShots() {
-  const pane = $("#tab-shots");
-  pane.innerHTML = "";
-  $("#shotCount").textContent = SHOTS.list.length
-    ? `(${SHOTS.list.length})`
-    : "";
-  pane.append(
-    h(
-      "p",
-      { class: "note-s" },
-      "Frame the view, pick a lens and aspect ratio, then capture. Each shot stores the time, camera and lens so you can return to it exactly.",
-    ),
-  );
-  pane.append(
-    h(
-      "div",
-      { class: "btnrow" },
-      h(
-        "button",
-        { class: "tb primary", onclick: captureShot },
-        "● Capture shot",
-      ),
-      h(
-        "button",
-        { class: "tb", onclick: openSheet, disabled: !SHOTS.list.length },
-        "Contact sheet",
-      ),
-      h(
-        "button",
-        { class: "tb", onclick: copyShotList, disabled: !SHOTS.list.length },
-        "Copy shot list",
-      ),
-    ),
-  );
-  SHOTS.list.forEach((s, i) => {
-    const ta = h("textarea", { placeholder: "Caption / action / dialogue…" });
-    ta.value = s.caption || "";
-    ta.addEventListener("input", () => {
-      s.caption = ta.value;
-      saveShots();
-    });
-    const del = h("button", null, "Delete");
-    let armed = false;
-    del.addEventListener("click", () => {
-      if (!armed) {
-        armed = true;
-        del.textContent = "Confirm delete";
-        del.style.color = "var(--red)";
-        setTimeout(() => {
-          armed = false;
-          del.textContent = "Delete";
-          del.style.color = "";
-        }, 2500);
-        return;
-      }
-      SHOTS.list.splice(i, 1);
-      saveShots();
-      renderShots();
-    });
-    pane.append(
-      h(
-        "div",
-        { class: "shot" },
-        h("img", {
-          src: s.img,
-          alt: "Shot " + s.n,
-          onclick: () => gotoShot(s),
-        }),
-        h(
-          "div",
-          { style: "min-width:0" },
-          h(
-            "div",
-            { class: "meta" },
-            h("b", null, `#${s.n}`),
-            ` ${s.met}`,
-            h("br"),
-            `${camDesc(s.cam)}`,
-          ),
-          ta,
-          h(
-            "div",
-            { class: "acts" },
-            h("button", { onclick: () => gotoShot(s) }, "Go to"),
-            h(
-              "button",
-              {
-                onclick: () => {
-                  if (i > 0) {
-                    SHOTS.list.splice(i - 1, 0, SHOTS.list.splice(i, 1)[0]);
-                    saveShots();
-                    renderShots();
-                  }
-                },
-              },
-              "↑",
-            ),
-            h(
-              "button",
-              {
-                onclick: () => {
-                  if (i < SHOTS.list.length - 1) {
-                    SHOTS.list.splice(i + 1, 0, SHOTS.list.splice(i, 1)[0]);
-                    saveShots();
-                    renderShots();
-                  }
-                },
-              },
-              "↓",
-            ),
-            del,
-          ),
-        ),
-      ),
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  const U = {
+    tNoise: { value: EXH.tex },
+    uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+    uFogCol: { value: new THREE.Color(0, 0, 0) },
+    uExpo: { value: 1 },
+    uHG: { value: 1 },
+  }; // shared by both
+  const mk = (geo, vs, fs) => {
+    const ms = new THREE.Mesh(
+      geo,
+      new THREE.ShaderMaterial({
+        vertexShader: vs,
+        fragmentShader: fs,
+        transparent: true,
+        premultipliedAlpha: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        uniforms: U,
+      }),
     );
-  });
+    ms.frustumCulled = false;
+    ms.renderOrder = 4;
+    ms.visible = false;
+    R.scene.add(ms);
+    return ms;
+  };
+  EXH.mesh = mk(g, GLSL_EXH_V, GLSL_EXH_F);
+  {
+    // the puffs: as many as the trail could need (one per ribbon point at most)
+    const np = NR,
+      gp = new THREE.BufferGeometry(),
+      B = (k) =>
+        new THREE.BufferAttribute(new Float32Array(4 * np * k), k).setUsage(
+          THREE.DynamicDrawUsage,
+        );
+    gp.setAttribute("position", B(3));
+    gp.setAttribute("aUV", B(3));
+    gp.setAttribute("aTau", B(1));
+    gp.setAttribute("aSun", B(3));
+    gp.setAttribute("aAmb", B(3));
+    gp.setAttribute("aFog", B(1));
+    gp.setAttribute("aFade", B(1));
+    gp.setAttribute("aN", B(3)); // (aN stays zero: the trail's puffs are shaded as flat blobs)
+    const ix = new Uint32Array(6 * np);
+    for (let i = 0; i < np; i++) {
+      const a = 4 * i;
+      ix.set([a, a + 1, a + 2, a, a + 2, a + 3], 6 * i);
+    }
+    gp.setIndex(new THREE.BufferAttribute(ix, 1));
+    const uvA = gp.attributes.aUV.array;
+    for (let i = 0; i < np; i++)
+      [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ].forEach(([x, y], k) => {
+        uvA[12 * i + 3 * k] = x;
+        uvA[12 * i + 3 * k + 1] = y;
+      });
+    EXH.puffs = mk(gp, GLSL_PUFF_V, GLSL_PUFF_F);
+  }
 }
-function shotListText() {
-  const md = MV.md;
-  const lines = [`${md.M.name} — storyboard shot list`, ""];
-  SHOTS.list.forEach((s, i) =>
-    lines.push(
-      `${i + 1}. [Shot ${s.n}] ${s.met}  (${s.utc} UTC)  ${s.phase}${s.prop ? " · " + s.prop : ""}\n   Camera: ${camDesc(s.cam)}${s.cam.aspect ? " · " + s.cam.aspect + ":1" : ""}\n   ${s.caption || ""}`,
-    ),
-  );
-  return lines.join("\n");
+// sunlight reaching geocentric point p (km) along direction sd (unit, toward the Sun): [r, g, b], 0 in Earth's shadow
+const _exhT = [0, 0, 0];
+function exhSunlight(px, py, pz, sd) {
+  const R0 = BODIES.earth.R,
+    rr = Math.sqrt(px * px + py * py + pz * pz),
+    h = rr - R0,
+    d = px * sd[0] + py * sd[1] + pz * sd[2];
+  let ht, am, sh;
+  // the shadow's soft edge: haze, clouds and hills block light that skims the ground
+  if (d >= 0) {
+    ht = h;
+    const mu = d / rr,
+      k = (R0 + Math.max(h, 0)) / EXH_H;
+    am = Math.sqrt(k * k * mu * mu + 2 * k + 1) - k * mu;
+    sh = 1 - (1 - smoothstep((h + 1.5) / 7.5)) * (1 - smoothstep(mu / 0.035));
+  } // air mass along the slant path up and out
+  else {
+    ht = Math.sqrt(Math.max(rr * rr - d * d, 0)) - R0;
+    am =
+      Math.sqrt((Math.PI * (R0 + Math.max(ht, 0))) / (2 * EXH_H)) *
+      (1 + smoothstep((h - ht) / (3 * EXH_H)));
+    sh = smoothstep((ht + 1.5) / 7.5);
+  } // through the air down to the ray's lowest point (and up again)
+  const tr = Math.exp(-Math.max(ht, 0) / EXH_H) * am;
+  for (let j = 0; j < 3; j++)
+    _exhT[j] = sh * Math.min(1, Math.exp(-EXH_EXT[j] * (tr - 1)));
+  return _exhT;
 }
+const _exhV = new THREE.Vector3(),
+  _exhR = new THREE.Vector3(),
+  _exhU = new THREE.Vector3();
+const EXH_TINT = [0.82, 0.9, 1.0],
+  EXH_FIRE = [1.0, 0.55, 0.24]; // skylight; the flame's light

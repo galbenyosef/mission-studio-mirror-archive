@@ -1,7 +1,7 @@
 // index-inline-2 07 — three
-// Lines 1595-1943 of readable/index-inline-2.pretty.js (statement-aligned).
-function makeDetailTexture() {
-  // tileable value noise + craters, used to add surface texture below the resolution of the global maps
+// Lines 1617-1966 of readable/index-inline-2.pretty.js (statement-aligned).
+function makeDetailTexture(craters = true) {
+  // tileable value noise (+ craters for the airless worlds), used to add surface texture below the resolution of the global maps
   const N = 512,
     rnd = mulberry32(7);
   const v = new Float32Array(N * N);
@@ -34,7 +34,7 @@ function makeDetailTexture() {
           ((a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy);
       }
   }
-  for (let k = 0; k < 260; k++) {
+  for (let k = 0; k < (craters ? 260 : 0); k++) {
     // craters with raised rims, power-law sizes
     const r = 3 + 60 * Math.pow(rnd(), 3.2),
       cx = rnd() * N,
@@ -187,6 +187,7 @@ function initScene() {
   R.envPM = null;
   R.loader = new THREE.TextureLoader();
   R.detailTex = makeDetailTexture();
+  R.detailTexEarth = makeDetailTexture(false); // (Earth's ground without the craters, which from a few kilometres up read as cloud shadows)
   buildStars();
   buildBodies();
   buildPlanetOrbits();

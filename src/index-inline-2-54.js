@@ -1,307 +1,311 @@
-// index-inline-2 54 — three
-// Lines 15193-15497 of readable/index-inline-2.pretty.js (statement-aligned).
-function padFH(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    h = 12.8,
-    mountTop = h + 6.5,
-    stand = mountTop - LAUNCHERS.falconHeavy.stages[1].eng.len,
-    glow = padGlow();
-  ksc39Hardstand(k, h, glow);
-  k.box(M.concreteD, 0, h, -2, 24, 6.5, 18);
-  k.box(M.greyD, 0, mountTop - 0.4, 0, 14, 0.4, 7); // the launch mount
-  const fe = -28,
-    top = h + 75.3;
-  padLattice(k, M.grey, fe, 0, 12.2, h, 75.3, {
-    step: 6.1,
-    core: 4,
-    coreMat: M.greyD,
-    floorEvery: 2,
-  });
-  k.beam(M.grey, PV(fe, top, 0), PV(fe, top + 6, 0), 1.2);
-  k.cyl(M.fibre, fe, top + 6, 0, 0.5, 0.15, 24.4, 10);
-  {
-    const piv = PV(fe + 6.1, h + 66.1, 0);
-    const geo = new THREE.BoxGeometry(2.8, 3.0, 25.9);
-    geo.translate(0, 1.5, -12.95);
-    geo.rotateY(-0.35 - Math.PI / 2 - 1.3);
-    geo.translate(piv.x, piv.y, piv.z);
-    k.geo(M.white, geo);
-  } // the crew access arm, swung back
-  // the hangar at the foot of the ramp; SpaceX's Starship tower to the east
-  k.box(M.white, 0, 0, -500, 87, 26, 37);
-  k.box(M.greyL, 0, 0, -481.4, 60, 22, 0.4);
-  padStarshipTower(k, 300, 0, 0);
-  padWaterTower(k, 130, 90, 88.4, 6.6, 9);
-  padSphere(k, -260, 290, 10.5);
-  for (let i = 0; i < 3; i++)
-    k.cyl(M.white, 240 + i * 9, 0, 250, 3.5, 3.5, 14, 16);
-  k.build(g);
-  padGround(g, {
-    ...KSC_GROUND(h),
-    roads: [[0, -59.5 - 2.5 * h - h / 0.05, 0, -480, 30]],
-  });
-  const tip = PV(fe, top + 30.4, 0);
-  padWire(g, PV(fe, 2, 335), tip, 8);
-  padWire(g, tip, PV(fe, 2, -335), 8);
-  // the transporter-erector: its hinge at the launch mount's south edge, the strongback standing against the cores
-  const te = new THREE.Group();
-  te.position.copy(PV(0, mountTop - 1, -4.6));
-  g.add(te);
-  {
-    const kk = padKit(),
-      W = 9.5,
-      L = 72.5;
-    for (const sx of [-W / 2, W / 2])
-      for (const sz of [0, -2.2])
-        kk.beam(
-          M.greyL,
-          new THREE.Vector3(sx, 0, sz),
-          new THREE.Vector3(sx, L, sz),
-          0.55,
-        );
-    for (let i = 0; i <= 24; i++) {
-      const y = (L * i) / 24,
-        y2 = (L * (i + 1)) / 24;
-      kk.beam(
-        M.greyL,
-        new THREE.Vector3(-W / 2, y, 0),
-        new THREE.Vector3(W / 2, y, 0),
-        0.4,
+// index-inline-2 54 — wpx
+// Lines 15176-15484 of readable/index-inline-2.pretty.js (statement-aligned).
+function runwayRadius(body, dLoc) {
+  const rw = SHV.rwy;
+  if (!rw || body !== "earth") return null;
+  const b = R.bodies.earth,
+    C = meshDir(rw.lat, rw.lon),
+    { E, N } = meshEN(rw.lat, rw.lon),
+    hd = rw.hdg * DEG;
+  const f = vadd(vscale(E, Math.sin(hd)), vscale(N, Math.cos(hd))),
+    l = vcross(C, f),
+    d = vsub(dLoc, C);
+  const x = vdot(d, f) * b.R,
+    y = vdot(d, l) * b.R; // km along the runway from its threshold, and across
+  if (x < -0.1 || x > rw.len + 0.1 || Math.abs(y) > rw.wid / 2 + 0.05)
+    return null;
+  return b.R + rw.elev + SH_RWY_TOP;
+}
+// ---------------- the runway ----------------
+function runwayTexture(rw) {
+  const lake = rw.surface === "lakebed",
+    W = 128,
+    Hh = 4096,
+    c = document.createElement("canvas");
+  c.width = W;
+  c.height = Hh;
+  const g = c.getContext("2d"),
+    mPerPx = (rw.len * 1000) / Hh,
+    px = (m) => m / mPerPx,
+    wPx = (m) => (m / (rw.wid * 1000)) * W;
+  g.fillStyle = lake ? "#d9cdb2" : "#6d6c69";
+  g.fillRect(0, 0, W, Hh);
+  if (!lake)
+    for (let i = 0; i < 900; i++) {
+      g.fillStyle = `rgba(${Math.random() < 0.5 ? "255,255,255" : "0,0,0"},${0.03 + Math.random() * 0.05})`;
+      g.fillRect(
+        Math.random() * W,
+        Math.random() * Hh,
+        2 + Math.random() * 10,
+        2 + Math.random() * 30,
       );
-      kk.beam(
-        M.greyL,
-        new THREE.Vector3(-W / 2, y, -2.2),
-        new THREE.Vector3(W / 2, y, -2.2),
-        0.4,
-      );
-      if (i < 24) {
-        kk.beam(
-          M.greyL,
-          new THREE.Vector3(-W / 2, y, 0),
-          new THREE.Vector3(W / 2, y2, 0),
-          0.3,
-        );
-        kk.beam(
-          M.greyL,
-          new THREE.Vector3(-W / 2, y, -2.2),
-          new THREE.Vector3(W / 2, y2, -2.2),
-          0.3,
-        );
-      }
     }
-    for (const y of [22, 40, 58])
-      kk.beam(
-        M.greyD,
-        new THREE.Vector3(0, y, 0),
-        new THREE.Vector3(0, y, 2.4),
-        0.8,
-      ); // clamp arms to the centre core
-    kk.build(te);
+  const paint = lake ? "#1d1c1a" : "#f2f1ec";
+  g.fillStyle = paint;
+  // centreline dashes, edge stripes, threshold bars and touchdown-zone marks at both ends
+  for (let y = px(120); y < Hh - px(120); y += px(60))
+    g.fillRect(W / 2 - wPx(0.45), y, wPx(0.9), px(36));
+  g.fillRect(wPx(1.5), 0, wPx(lake ? 3 : 0.9), Hh);
+  g.fillRect(W - wPx(1.5) - wPx(lake ? 3 : 0.9), 0, wPx(lake ? 3 : 0.9), Hh);
+  for (const end of [0, 1]) {
+    const y0 = end ? Hh - px(8) - px(45) : px(8);
+    if (!lake)
+      for (let k = 0; k < 16; k++) {
+        const x = wPx(4) + (k * (W - wPx(8))) / 16;
+        g.fillRect(x, y0, wPx(1.8), px(45));
+      }
+    else g.fillRect(wPx(2), y0 + px(20), W - wPx(4), px(6));
+    for (const d of [150, 300, 450, 600]) {
+      const y = end ? Hh - px(d) - px(22) : px(d);
+      g.fillRect(W / 2 - wPx(14), y, wPx(3), px(22));
+      g.fillRect(W / 2 + wPx(11), y, wPx(3), px(22));
+    }
   }
-  const animate = (t) => {
-    const tl = t - md.M.t0;
-    te.rotation.x = -(
-      1.5 * DEG * smoothstep(clamp((tl + 240) / 20, 0, 1)) +
-      22 * DEG * smoothstep(clamp(tl / 4, 0, 1))
-    );
-  };
-  animate(md.M.t0 - 3600);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: mountTop,
-    animate,
-    foot: 7,
-    trenchD: 95,
-    block: [[270, 30], padBlock(fe, 0, 6.1, 5.6), sphereBlock(-260, 290)],
-  }; // the erector stands against the cores' south side
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = Math.min(16, R.maxAniso || 1);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
 }
-// SpaceX's launch and catch tower ("Mechazilla", as at Starbase and on Pad 39A): 143 m of dark steel modules, about 12 m
-// square, a 3-m lightning rod; the two 36-m catch arms ("chopsticks") on their carriage and the ship's quick-disconnect
-// arm, both reaching toward the launch mount (facing +E from a tower at e, n: arms toward dir, radians from east)
-function padStarshipTower(k, e, n, dir = 0) {
-  const M = padMats(),
-    w = 12;
-  padLattice(k, M.black, e, n, w, 0, 143, {
-    step: 6,
-    core: 6,
-    coreMat: M.greyD,
-    floors: false,
-    col: 1.1,
-    beam: 0.7,
-  });
-  k.cyl(M.galv, e, 143, n, 0.25, 0.1, 3, 6);
-  const ce = Math.cos(dir),
-    cn = Math.sin(dir),
-    pe = -cn,
-    pn = ce,
-    y = 74,
-    f0 = PV(e + (ce * w) / 2, y, n + (cn * w) / 2);
-  k.box(M.greyD, e + ce * (w / 2 + 1), y - 3, n + cn * (w / 2 + 1), 5, 7, 5);
-  for (const s of [-1, 1])
-    k.beam(
-      M.greyD,
-      f0.clone().add(PV(pe * s * 3, 0, pn * s * 3)),
-      PV(
-        e + ce * (w / 2 + 34) + pe * s * 7,
-        y,
-        n + cn * (w / 2 + 34) + pn * s * 7,
-      ),
-      1.6,
-      3.2,
-    ); // the chopsticks, opened
-  k.beam(
-    M.greyD,
-    PV(e + (ce * w) / 2, 91, n + (cn * w) / 2),
-    PV(e + ce * (w / 2 + 14), 91, n + cn * (w / 2 + 14)),
-    1.4,
-    2.0,
-  ); // the ship's quick-disconnect arm
-}
-// ---------------- Atlas V on Space Launch Complex 41 (Perseverance, 2020) ----------------
-// A "clean pad": the rocket rolls the 550 m from the Vertical Integration Facility on its Mobile Launch Platform (16.8 ×
-// 13.7 m, its 56-m umbilical mast on the north side carrying the Centaur's lines) and stands over the flame duct between
-// four lightning towers (about 105 m, steel with a fibreglass mast) whose wires cage the pad. The Crew Access Tower (61 m,
-// 2016) stands to the northwest, its arm (52 m up) swung away; the 89-m integration building to the south.
-function padSLC41(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    deck = 9.0,
-    stand = deck + 0.5 - LAUNCHERS.atlasV541.stages[1].eng.len;
-  k.box(M.concrete, 0, 0, 0, 70, 0.3, 90);
-  k.box(M.soot, 0, 0.3, 0, 9, 0.05, 30); // the pad apron and the duct's grating
-  k.box(M.white, 0, 1.2, 0, 16.8, deck - 1.2, 13.7);
-  k.box(M.greyD, 0, 0, 0, 14, 1.2, 11); // the platform on its trucks
-  for (const e of [-3.6, 3.6]) k.box(M.steelD, e, 0, -300, 0.4, 0.3, 600); // the rails to the integration building
-  padLattice(k, M.white, 0, 9.6, 4.2, deck, 47.4, {
-    step: 4.8,
-    floors: false,
-    col: 0.5,
-    beam: 0.3,
-  });
-  k.cyl(M.greyD, 0, deck + 47.4, 9.6, 0.9, 0.9, 2.2, 10); // the umbilical mast, its wind damper
-  for (const y of [deck + 26, deck + 40])
-    k.beam(M.greyD, PV(0, y, 7.5), PV(0, y - 1.5, 2.2), 0.5); // the Centaur's umbilicals
-  padLattice(k, M.grey, -18, 26, 6.1, 0, 61, {
-    step: 8.5,
-    core: 2.2,
-    coreMat: M.greyD,
-    col: 0.55,
-    beam: 0.35,
-  }); // crew access tower
-  {
-    const geo = new THREE.BoxGeometry(2.4, 2.6, 13);
-    geo.translate(0, 1.3, -6.5);
-    geo.rotateY(Math.PI * 0.85);
-    geo.translate(18 + 3, 52.4, 26 - 3);
-    k.geo(M.white, geo);
+function buildRunway(md) {
+  disposeRunway();
+  const rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
+  if (!rw) return;
+  const b = R.bodies.earth,
+    Rm = (b.R + rw.elev + SH_RWY_TOP) * 1000; // m, a few centimetres above the sphere
+  const C = meshDir(rw.lat, rw.lon),
+    { E, N } = meshEN(rw.lat, rw.lon),
+    hd = rw.hdg * DEG;
+  const f = vadd(vscale(E, Math.sin(hd)), vscale(N, Math.cos(hd))),
+    l = vcross(C, f);
+  const L = rw.len * 1000,
+    Wd = rw.wid * 1000,
+    nL = 64;
+  const at = (x, y) =>
+    vscale(
+      vunit(vadd(vscale(C, b.R * 1000), vadd(vscale(f, x), vscale(l, y)))),
+      Rm,
+    ); // point on the sphere, m (mesh frame)
+  const Pc = at(L / 2, 0),
+    pos = [],
+    uv = [],
+    idx = [];
+  for (let i = 0; i <= nL; i++)
+    for (const j of [0, 1]) {
+      const p = at((L * i) / nL, (j - 0.5) * Wd);
+      pos.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2]);
+      uv.push(1 - j, i / nL);
+    }
+  for (let i = 0; i < nL; i++) {
+    const a = 2 * i,
+      bq = a + 1,
+      cq = a + 2,
+      d = a + 3;
+    idx.push(a, cq, bq, bq, cq, d);
   }
-  const T = [
-    [-80, 75],
-    [80, 75],
-    [80, -75],
-    [-80, -75],
-  ].map(([e, n]) => padLightningTower(k, e, n, 75, 30, 2.8));
-  k.box(M.white, 0, 0, -549, 40, 89, 35);
-  k.box(M.greyL, 0, 0, -531.4, 12.5, 83.8, 0.4); // the integration building and its door
-  padSphere(k, -150, 130, 7.5);
-  k.box(M.greyL, 0, 0, 60, 26, 7, 14); // oxygen sphere, the pad equipment building
-  k.build(g);
-  padGround(g, { sea: 80, shore: 900, roads: [[0, -60, 0, -530, 14]] });
-  for (let i = 0; i < 4; i++) {
-    padWire(g, T[i], T[(i + 1) % 4], 12);
-    padWire(g, T[i], T[(i + 2) % 4], 16);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(
+    g,
+    new THREE.MeshStandardMaterial({
+      map: runwayTexture(rw),
+      roughness: 0.92,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }),
+  );
+  const grp = new THREE.Group();
+  grp.add(m);
+  // edge lights every 60 m, green threshold bars, red end bars
+  const lp = [],
+    lc = [],
+    add = (x, y, col) => {
+      const p = at(x, y);
+      lp.push(p[0] - Pc[0], p[1] - Pc[1], p[2] - Pc[2] + 0);
+      const cc = new THREE.Color(col);
+      lc.push(cc.r, cc.g, cc.b);
+    };
+  for (let x = 0; x <= L + 1; x += 60)
+    for (const s of [-1, 1]) add(x, s * (Wd / 2 + 1.5), "#fff1cf");
+  for (let k = -12; k <= 12; k++) {
+    add(-3, (k * Wd) / 24, "#7dff9a");
+    add(L + 3, (k * Wd) / 24, "#ff5a4a");
   }
-  const glow = padGlow(),
-    lit = new THREE.Mesh(new THREE.PlaneGeometry(9, 30), glow);
-  lit.rotation.x = -Math.PI / 2;
-  lit.position.y = 0.4;
-  g.add(lit);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: deck,
-    foot: 5,
-    trenchD: 30,
-    block: [
-      padBlock(0, 9.6, 2.1, 3.5),
-      padBlock(-18, 26, 3.05, 3.5),
-      ...T.map((p) => padBlock(-p.x, p.z, 1.6, 3.5)),
-      sphereBlock(-150, 130, 87),
-    ],
-  };
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
+  lg.setAttribute("color", new THREE.Float32BufferAttribute(lc, 3));
+  const lights = new THREE.Points(
+    lg,
+    new THREE.PointsMaterial({
+      size: 3.2,
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  lights.renderOrder = 6;
+  grp.add(lights);
+  // place the group at the runway centre in the planet's mesh frame (unit sphere scaled by R): metres → mesh units
+  const k = 1 / (b.R * 1000);
+  grp.position.set(Pc[0] * k, Pc[1] * k, Pc[2] * k);
+  grp.scale.setScalar(k);
+  b.mesh.add(grp);
+  SHV.runway = grp;
+  SHV.lights = lights;
+  SHV.rwy = rw;
 }
-// ---------------- Atlas-Agena on Launch Complex 12 (Mariner 4, 1964) ----------------
-// The launch stand: a 6.1-m concrete pedestal (18 × 24 m) with the launcher ring on top, the flame bucket under it opening
-// to the east, a ramp up its southwest side; the umbilical tower (31 m) beside the rocket with booms to the Atlas and the
-// Agena; the red service tower (about 50 m, an A-frame), rolled back 90 m on its rails; the domed blockhouse 230 m west.
-function padLC12(md) {
-  const M = padMats(),
-    k = padKit(),
-    g = new THREE.Group(),
-    deck = 6.1,
-    stand = deck + 0.6 - LAUNCHERS.atlasAgena.stages[0].eng.len;
-  k.box(M.concrete, 0, 0, 0, 18.3, deck, 23.8);
-  k.box(M.soot, 0, 0, 0, 7, 0.05, 40);
-  k.box(M.steelD, 0, deck, 0, 6.2, 0.6, 6.2);
-  k.quads(M.concrete, [
-    [
-      PV(-9.15, deck, -8),
-      PV(-9.15, deck, -0.5),
-      PV(-36, 0, -0.5),
-      PV(-36, 0, -8),
-    ],
-  ]); // the ramp
-  padLattice(k, M.red, -6.5, 0, 3.0, deck, 25, {
-    step: 3.1,
-    floors: false,
-    col: 0.4,
-    beam: 0.25,
-  }); // umbilical tower
-  for (const y of [deck + 14, deck + 23])
-    k.beam(M.redD, PV(-5, y, 0), PV(-1.4, y - 1, 0), 0.4);
-  // the service tower, rolled 90 m north along its rails
-  const sn = 95;
-  for (const e of [-6, 6]) k.box(M.steelD, e, 0, sn / 2, 0.4, 0.3, sn + 20);
-  for (const sd of [-1, 1])
-    for (const se of [-1, 1])
-      k.beam(
-        M.red,
-        PV(sd * 9, 0, sn + se * 8),
-        PV(sd * 4, 50, sn + se * 5),
-        1.2,
-      );
-  padLattice(k, M.red, 0, sn, 8, 0, 50, {
-    step: 5,
-    floors: true,
-    col: 0.5,
-    beam: 0.35,
+function disposeRunway() {
+  if (!SHV.runway) return;
+  const g = SHV.runway;
+  g.parent && g.parent.remove(g);
+  g.traverse((n) => {
+    if (n.geometry) n.geometry.dispose();
+    if (n.material) {
+      if (n.material.map) n.material.map.dispose();
+      n.material.dispose();
+    }
   });
-  k.sphere(M.concrete, -230, -6, 0, 13, 24); // the blockhouse's dome
-  k.build(g);
-  padGround(g, { sea: 95, shore: 300, roads: [[-230, 0, -30, 0, 8]] });
-  const glow = padGlow(),
-    lit = new THREE.Mesh(new THREE.PlaneGeometry(7, 20), glow);
-  lit.rotation.x = -Math.PI / 2;
-  lit.position.y = 0.3;
-  g.add(lit);
-  return {
-    group: g,
-    stand,
-    glow,
-    deckY: deck,
-    foot: 3,
-    trenchD: 22,
-    block: [padBlock(-6.5, 0, 1.5, 3), padBlock(0, sn, 9, 3)],
-  };
+  SHV.runway = null;
+  SHV.lights = null;
+  SHV.rwy = null;
 }
-// ---------------- Long March 5 on Wenchang LC-101 (2020) ----------------
-// The rocket rolls 2.8 km from its 99-m assembly building on a 2,000-t mobile launch platform (16 wheels on 20-m-gauge
-// rails) and stands beside the 91.7-m fixed service tower (12 levels, its three sets of rotating work platforms swung
-// open for launch) over the two-way flame trench; four 120-m lightning towers with wires between them; the sea 600 m to
-// the southeast.
+function updateRunway(t) {
+  // lights on between dusk and dawn
+  if (!SHV.lights) return;
+  const rw = SHV.rwy;
+  const r = sitePosEcl("earth", rw.lat, rw.lon, 0, t),
+    sun = vunit(vscale(helio("earth", t).r, -1));
+  const el = vdot(vunit(r), sun);
+  SHV.lights.material.opacity = clamp((0.05 - el) / 0.1, 0, 1);
+}
+
+// ==== 43_terrain.js
+// ============================================================================
+// The real ground round the American launch and landing sites, drawn from data rather than photographed: the relief
+// from the USGS elevation model, the sea, lagoons, rivers, lakes and marsh from the National Hydrography Dataset, the
+// roads from the Census Bureau, the land coloured by the National Land Cover Database (tools/terrain/fetch.mjs writes
+// each site as assets/terrain_<id>.json; all of it public domain). The buildings are drawn by hand (app/44_buildings.js)
+// since no public-domain dataset has them.
+// The site is a square draped over the sphere in the planet's mesh frame, as the runway is (app/42_shuttleview.js): a
+// grid of heights with vertex colours and a fine scrub texture, water as flat polygons at their level, streams and roads
+// as strips on the ground. Where a pad or a runway stands the ground is flattened to its level so the pad's slab and the
+// runway lie on it; toward the rim the ground fades out and the globe's own map shows through. Without a site file the
+// pad's procedural ground stays, as before.
+// ============================================================================
+const TERRAIN_SITES = {
+  ksc: { lat: 28.615, lon: -80.655, km: 32 },
+  starbase: { lat: 25.997, lon: -97.155, km: 12 },
+  edwards: { lat: 34.93, lon: -117.85, km: 48 },
+  whitesands: { lat: 32.99, lon: -106.425, km: 32 },
+};
+const TER = { groups: [], missing: {}, pending: 0, anim: [] }; // anim: materials with a time (the flags)
+// the land's colours by NLCD class (sRGB), with how rough the scrub texture should show on each
+const TER_COVER = {
+  0: ["#8d8a60", 1],
+  11: ["#3d6a86", 0.2],
+  12: ["#e8ecf0", 0.3],
+  21: ["#8f9478", 0.7],
+  22: ["#8a8c80", 0.5],
+  23: ["#7d7e78", 0.4],
+  24: ["#6c6c6a", 0.3],
+  31: ["#c9bea4", 0.6],
+  41: ["#55733c", 1.2],
+  42: ["#3d5c34", 1.2],
+  43: ["#4f6b3c", 1.2],
+  51: ["#9c925e", 1],
+  52: ["#8f8c5e", 1],
+  71: ["#a6a26c", 0.9],
+  72: ["#aaa878", 0.8],
+  73: ["#9aa070", 0.8],
+  74: ["#8fa07e", 0.8],
+  81: ["#93a65c", 0.7],
+  82: ["#a89060", 0.6],
+  90: ["#4e6a45", 1.1],
+  95: ["#7a8a58", 0.9],
+};
+const TER_WATER = {
+  sea: "#22486b",
+  bay: "#23486a",
+  estuary: "#264c69",
+  lake: "#254a68",
+  reservoir: "#254a68",
+  river: "#284e6a",
+  swamp: "#3d5c56",
+  playa: "#cfc6ae",
+  water: "#254a68",
+};
+const TER_ROAD = {
+  primary: [18, "#4c4e52"],
+  secondary: [12, "#55575a"],
+  local: [7, "#62625e"],
+}; // (a little wider than life, so they read from a few kilometres up)
+// the site whose square holds the point (a little inside its edge)
+function terrainSiteFor(lat, lon) {
+  for (const [id, S] of Object.entries(TERRAIN_SITES)) {
+    const dN = (lat - S.lat) * 110.574,
+      dE = (lon - S.lon) * 111.32 * Math.cos(S.lat * DEG),
+      h = S.km / 2 - 0.5;
+    if (Math.abs(dN) < h && Math.abs(dE) < h && !TER.missing[id]) return id;
+  }
+  return null;
+}
+function b64(s, T) {
+  const bin = atob(s),
+    u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < u8.length; i++) u8[i] = bin.charCodeAt(i);
+  return new T(u8.buffer);
+}
+// the mission's sites: the launch site and, on a Shuttle flight, the landing runway
+function buildTerrain(md) {
+  disposeTerrain();
+  const want = new Set(),
+    S = LAUNCH_SITES[md.cfg.site],
+    rw = md.cfg.runway && RUNWAYS[md.cfg.runway];
+  for (const p of [S, rw]) {
+    if (!p) continue;
+    const id = terrainSiteFor(p.lat, p.lon);
+    if (id) want.add(id);
+  }
+  for (const id of want) loadTerrain(id, md);
+}
+function loadTerrain(id, md) {
+  TER.pending++;
+  fetch(ASSET(`terrain_${id}.json`))
+    .then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then((T) => {
+      if (MV.md === md) terrainBuild(id, T, md);
+    })
+    .catch(() => {
+      TER.missing[id] = true;
+    }) // (no file for this site: the pad's procedural ground stays)
+    .finally(() => {
+      TER.pending--;
+    });
+}
+function disposeTerrain() {
+  for (const g of TER.groups) {
+    g.parent && g.parent.remove(g);
+    g.traverse((n) => {
+      if (n.geometry) n.geometry.dispose();
+      if (n.material && n.material !== padGround.mat) n.material.dispose();
+    });
+  }
+  TER.groups = [];
+  TER.anim = [];
+  if (MV.pad)
+    MV.pad.traverse((n) => {
+      if (n.userData.padGround) n.visible = true;
+    });
+}
+// ---- the build ----

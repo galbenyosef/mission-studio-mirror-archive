@@ -1,7 +1,9 @@
 // index-inline-2 06 — asset_map
-// Lines 1314-1594 of readable/index-inline-2.pretty.js (statement-aligned).
+// Lines 1329-1616 of readable/index-inline-2.pretty.js (statement-aligned).
+const R = { O: [0, 0, 0], helio: {}, texLoaded: 0 };
 const ASSET_MAP = {
   "apollo_lm.glb": "apollo_lm.0c2c313482.glb",
+  "ariane5.glb": "ariane5.cd8cebed0d.glb",
   "earth_aux.jpg": "earth_aux.3bf717776b.jpg",
   "earth_clouds.jpg": "earth_clouds.85c42a93e9.jpg",
   "earth_clouds_8k.jpg": "earth_clouds_8k.87f5cced5f.jpg",
@@ -11,6 +13,7 @@ const ASSET_MAP = {
   "earth_night_8k.jpg": "earth_night_8k.d858fe1094.jpg",
   "iss.glb": "iss.93dcb2db5f.glb",
   "jupiter.jpg": "jupiter.efa4857ae7.jpg",
+  "jwst.glb": "jwst.a6c3528675.glb",
   "mars.jpg": "mars.55a8499eae.jpg",
   "mars_4k.jpg": "mars_4k.198fa949d9.jpg",
   "mars_8k.jpg": "mars_8k.2b287e5c8f.jpg",
@@ -28,6 +31,10 @@ const ASSET_MAP = {
   "saturnv.glb": "saturnv.7a0913aa0b.glb",
   "shuttle_stack.glb": "shuttle_stack.9526e4715a.glb",
   "stars.json": "stars.b686ef8f1d.json",
+  "terrain_edwards.json": "terrain_edwards.8f322d03f6.json",
+  "terrain_ksc.json": "terrain_ksc.450146f0c2.json",
+  "terrain_starbase.json": "terrain_starbase.d6bfffa20c.json",
+  "terrain_whitesands.json": "terrain_whitesands.ddda2f4cc9.json",
   "venus.jpg": "venus.d02db3e21e.jpg",
   "BufferGeometryUtils.js": "BufferGeometryUtils.1b11c30e00.js",
   "GLTFLoader.js": "GLTFLoader.8c75e4b72b.js",
@@ -138,7 +145,7 @@ void main() {
   float t0 = 0.0;
   if (aCamH > aRt - aRg) { float b = dot(aCam, d); vec3 pc = aCam - b * d; float Dt = aRt * aRt - dot(pc, pc); t0 = Dt > 0.0 ? clamp(-b - sqrt(Dt), 0.0, dist) : dist; }
   vec3 S, T; aIntegrate(aCam, d, t0, dist, L, 2, aCamH > aRt - aRg ? 12 : 16, S, T);
-  col = col * T * aWB * aExpo + aDisplay(S);
+  col = col * T * aWB * aExpo + aHaze(S, dist);
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
 }`;
@@ -173,7 +180,7 @@ void main() {
   float t0 = 0.0;
   if (aCamH > aRt - aRg) { float b = dot(aCam, d); vec3 pc = aCam - b * d; float Dt = aRt * aRt - dot(pc, pc); t0 = Dt > 0.0 ? clamp(-b - sqrt(Dt), 0.0, dist) : dist; }
   vec3 S, T; aIntegrate(aCam, d, t0, dist, L, 2, 12, S, T);
-  col = col * T * aWB * aExpo + aDisplay(S);
+  col = col * T * aWB * aExpo + aHaze(S, dist);
 #else
   vec3 col = alb * (shade + uAmb) + alb * uFill * (1.0 - smoothstep(0.0, 0.25, mu0)); // night fill (earthshine on the Moon, cinematic elsewhere)
   col = mix(col, uFogColor, 1.0 - exp(-dist * uFogK));
